@@ -1,0 +1,31 @@
+{
+  "name": "@fund/core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "平台无关的基金核心库：领域模型、交易引擎、估值聚合、策略回测、序列化",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "src"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/pako": "^2.0.3",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "dependencies": {
+    "pako": "^2.1.0"
+  }
+}

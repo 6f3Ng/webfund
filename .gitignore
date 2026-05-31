@@ -1,0 +1,12 @@
+node_modules/
+dist/
+build/
+.DS_Store
+*.log
+.wrangler/
+.dev.vars
+coverage/
+.vite/
+.idea/
+.vscode/
+*.local

@@ -1,0 +1,12 @@
+packages:
+  - 'packages/*'
+
+verifyDepsBeforeRun: false
+
+onlyBuiltDependencies:
+  - esbuild
+  - workerd
+  - sharp
+
+allowBuilds:
+  sharp: set this to true or false

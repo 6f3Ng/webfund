@@ -1,0 +1,16 @@
+name = "fund-workers"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+# 允许的前端来源（CORS 白名单），通过环境变量覆盖
+[vars]
+ALLOWED_ORIGINS = "http://localhost:5173"
+
+# KV 命名空间（自建估值/历史数据缓存，部署前用 wrangler 创建并填入 id）
+# [[kv_namespaces]]
+# binding = "FUND_CACHE"
+# id = "<your-kv-namespace-id>"
+
+[observability]
+enabled = true
