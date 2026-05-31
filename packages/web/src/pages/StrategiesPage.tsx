@@ -45,7 +45,7 @@ function describeParams(s: Strategy): string {
     case 'THRESHOLD_BUY':
       return `近${p.window}日跌${(p.dropPct * 100).toFixed(1)}% 买 ¥${p.amount}`;
     case 'THRESHOLD_SELL':
-      return `近${p.window}日涨${(p.risePct * 100).toFixed(1)}% 卖${(p.sellRatio * 100).toFixed(0)}%`;
+      return `近${p.window}日涨${(p.risePct * 100).toFixed(1)}% 卖 ¥${p.amount}`;
     case 'TAKE_PROFIT':
       return `+${(p.gainPct * 100).toFixed(0)}% 卖${(p.sellRatio * 100).toFixed(0)}%`;
     case 'SMART_TAKE_PROFIT':

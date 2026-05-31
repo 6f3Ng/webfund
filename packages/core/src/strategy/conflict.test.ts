@@ -17,6 +17,13 @@ const sell = (fund: string, ratio: number, id = 's'): StrategyAction => ({
   ratio,
   reason: 'sell',
 });
+const sellAmount = (fund: string, amount: number, id = 's'): StrategyAction => ({
+  strategyId: id,
+  fundCode: fund,
+  side: 'SELL',
+  amount,
+  reason: 'sellAmt',
+});
 
 describe('mergeActions', () => {
   it('先卖后买', () => {
@@ -40,6 +47,16 @@ describe('mergeActions', () => {
     const sells = result.filter((a) => a.side === 'SELL');
     expect(sells).toHaveLength(1);
     expect(sells[0].ratio).toBe(1);
+  });
+
+  it('同基金同向卖出金额合并', () => {
+    const result = mergeActions(
+      [sellAmount('A', 2000, 's1'), sellAmount('A', 3000, 's2')],
+      DEFAULT_CONFLICT_POLICY,
+    );
+    const sells = result.filter((a) => a.side === 'SELL');
+    expect(sells).toHaveLength(1);
+    expect(sells[0].amount).toBe(5000);
   });
 
   it('不合并时保留所有动作', () => {

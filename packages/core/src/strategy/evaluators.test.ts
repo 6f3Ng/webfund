@@ -122,7 +122,7 @@ describe('THRESHOLD_SELL 阈值卖出', () => {
     name: '涨5卖',
     templateType: 'THRESHOLD_SELL',
     fundCode: '000001',
-    params: { type: 'THRESHOLD_SELL', risePct: 0.05, window: 3, sellRatio: 0.5 },
+    params: { type: 'THRESHOLD_SELL', risePct: 0.05, window: 3, amount: 2000 },
     enabled: true,
   };
 
@@ -141,7 +141,7 @@ describe('THRESHOLD_SELL 阈值卖出', () => {
     );
     expect(actions).toHaveLength(1);
     expect(actions[0].side).toBe('SELL');
-    expect(actions[0].ratio).toBe(0.5);
+    expect(actions[0].amount).toBe(2000);
   });
 
   it('无持仓不触发', () => {

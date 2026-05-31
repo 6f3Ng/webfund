@@ -260,7 +260,7 @@ function evalThresholdBuy(
   return [];
 }
 
-/** 阈值卖出：近 window 个交易日涨幅达到 risePct 时卖出 sellRatio 比例 */
+/** 阈值卖出：近 window 个交易日涨幅达到 risePct 时卖出 amount 金额 */
 function evalThresholdSell(
   s: Strategy,
   p: ThresholdSellParams,
@@ -285,8 +285,8 @@ function evalThresholdSell(
         strategyId: s.id,
         fundCode: s.fundCode,
         side: 'SELL',
-        ratio: p.sellRatio,
-        reason: `近${p.window}日涨${(rise * 100).toFixed(2)}%触发卖出`,
+        amount: p.amount,
+        reason: `近${p.window}日涨${(rise * 100).toFixed(2)}%触发卖出¥${p.amount}`,
       },
     ];
   }

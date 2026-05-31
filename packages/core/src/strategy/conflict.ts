@@ -36,10 +36,12 @@ function mergeByFund(actions: StrategyAction[], side: 'BUY' | 'SELL'): StrategyA
       existing.amount = roundAmount((existing.amount ?? 0) + (a.amount ?? 0));
       existing.reason = `${existing.reason}; ${a.reason}`;
     } else {
-      // 卖出：份额相加；若任一为比例则比例相加（上限 1），且优先按比例
+      // 卖出合并：比例优先（相加封顶 1）；否则金额相加；否则份额相加
       if (existing.ratio !== undefined || a.ratio !== undefined) {
         existing.ratio = Math.min(1, (existing.ratio ?? 0) + (a.ratio ?? 0));
-        // 若混合了绝对份额，转为按比例为主（绝对份额并入由引擎按比例执行）
+        existing.shares = roundShares((existing.shares ?? 0) + (a.shares ?? 0));
+      } else if (existing.amount !== undefined || a.amount !== undefined) {
+        existing.amount = roundAmount((existing.amount ?? 0) + (a.amount ?? 0));
         existing.shares = roundShares((existing.shares ?? 0) + (a.shares ?? 0));
       } else {
         existing.shares = roundShares((existing.shares ?? 0) + (a.shares ?? 0));

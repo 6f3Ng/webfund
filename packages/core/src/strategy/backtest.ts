@@ -116,8 +116,16 @@ export function runBacktest(input: BacktestInput): BacktestResult {
       if (action.side === 'SELL') {
         const pos = positions.get(action.fundCode);
         if (!pos || pos.shares <= 0) continue;
-        let sellShares = action.ratio !== undefined ? pos.shares * action.ratio : action.shares ?? 0;
-        sellShares = roundShares(Math.min(sellShares, pos.shares));
+        // 卖出份额优先级：ratio（比例）> amount（金额，按净值换算）> shares（绝对份额）
+        let sellShares: number;
+        if (action.ratio !== undefined) {
+          sellShares = pos.shares * action.ratio;
+        } else if (action.amount !== undefined) {
+          sellShares = action.amount / nav; // 卖出金额换算为份额（毛额口径）
+        } else {
+          sellShares = action.shares ?? 0;
+        }
+        sellShares = roundShares(Math.min(sellShares, pos.shares)); // 持仓不足则全卖
         if (sellShares <= 0) continue;
 
         const gross = sellShares * nav;

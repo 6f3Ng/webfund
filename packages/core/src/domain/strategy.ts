@@ -95,15 +95,17 @@ export interface ThresholdBuyParams {
   amount: number;
 }
 
-/** 阈值卖出：近 window 个交易日涨幅达到 risePct 时卖出 sellRatio 比例 */
+/**
+ * 阈值卖出：近 window 个交易日涨幅达到 risePct 时卖出 amount 金额（按成交净值换算份额，持仓不足则全卖）
+ */
 export interface ThresholdSellParams {
   type: 'THRESHOLD_SELL';
   /** 涨幅阈值（正数，如 0.05 表示涨 5%） */
   risePct: number;
   /** 观察窗口（交易日） */
   window: number;
-  /** 卖出比例 0~1 */
-  sellRatio: number;
+  /** 卖出金额（元） */
+  amount: number;
 }
 
 /** 止盈：持仓收益率达到 gainPct 时卖出 sellRatio 比例 */

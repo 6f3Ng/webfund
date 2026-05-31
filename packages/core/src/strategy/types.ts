@@ -5,9 +5,9 @@ export interface StrategyAction {
   strategyId: string;
   fundCode: FundCode;
   side: 'BUY' | 'SELL';
-  /** 买入金额（BUY） */
+  /** 买入金额（BUY）；卖出金额（SELL，引擎按净值换算份额，不足则全卖） */
   amount?: number;
-  /** 卖出份额（SELL，绝对份额）。与 ratio 二选一 */
+  /** 卖出份额（SELL，绝对份额）。与 ratio/amount 互斥 */
   shares?: number;
   /** 卖出比例 0~1（SELL，相对持有份额）。引擎换算为份额 */
   ratio?: number;

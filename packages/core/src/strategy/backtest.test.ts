@@ -136,6 +136,49 @@ describe('runBacktest - 指标与边界', () => {
     expect(result.metrics.maxDrawdown).toBeGreaterThan(0);
   });
 
+  it('阈值卖出按金额成交（不足持仓则全卖）', () => {
+    // 首日买入建仓，之后涨幅触发阈值卖出固定金额
+    const nav = makeNav('2024-01-01', [1.0, 1.0, 1.0, 1.0, 1.2, 1.2]);
+    const strategies: Strategy[] = [
+      {
+        id: 'b',
+        name: '首买',
+        templateType: 'DCA',
+        fundCode: '000001',
+        params: {
+          type: 'DCA',
+          period: 'MONTHLY',
+          dayOfPeriod: new Date(nav[0].date).getUTCDate(),
+          amount: 10000,
+        },
+        enabled: true,
+      },
+      {
+        id: 'ts',
+        name: '涨卖',
+        templateType: 'THRESHOLD_SELL',
+        fundCode: '000001',
+        params: { type: 'THRESHOLD_SELL', risePct: 0.1, window: 2, amount: 3000 },
+        enabled: true,
+      },
+    ];
+    const result = runBacktest({
+      strategies,
+      conflictPolicy: DEFAULT_CONFLICT_POLICY,
+      navData: { '000001': nav },
+      start: nav[0].date,
+      end: nav[nav.length - 1].date,
+      initialCash: 20000,
+      purchaseFeeRate: 0,
+      redeemFeeRate: 0,
+    });
+    const sells = result.trades.filter((t) => t.side === 'SELL');
+    expect(sells.length).toBeGreaterThanOrEqual(1);
+    // 卖出金额约 3000（净值 1.2 → 份额 2500），毛额 = 份额×净值 ≈ 3000
+    expect(sells[0].amount).toBeCloseTo(3000, 0);
+    expect(sells[0].shares).toBeCloseTo(2500, 0);
+  });
+
   it('空净值数据安全返回', () => {
     const result = runBacktest({
       strategies: [],

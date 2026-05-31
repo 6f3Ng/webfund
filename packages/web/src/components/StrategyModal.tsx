@@ -81,7 +81,7 @@ function buildParams(
         type: 'THRESHOLD_SELL',
         risePct: Number(v.risePct) / 100,
         window: Number(v.window),
-        sellRatio: Number(v.sellRatio) / 100,
+        amount: Number(v.amount),
       };
     case 'TAKE_PROFIT':
       return { type: 'TAKE_PROFIT', gainPct: Number(v.gainPct) / 100, sellRatio: Number(v.sellRatio) / 100 };
@@ -144,7 +144,7 @@ function paramsToForm(p: StrategyParams): Record<string, number | string | boole
     case 'THRESHOLD_BUY':
       return { dropPct: p.dropPct * 100, window: p.window, amount: p.amount };
     case 'THRESHOLD_SELL':
-      return { risePct: p.risePct * 100, window: p.window, sellRatio: p.sellRatio * 100 };
+      return { risePct: p.risePct * 100, window: p.window, amount: p.amount };
     case 'TAKE_PROFIT':
       return { gainPct: p.gainPct * 100, sellRatio: p.sellRatio * 100 };
     case 'SMART_TAKE_PROFIT':
@@ -193,7 +193,7 @@ function defaultFormForTemplate(type: StrategyTemplate): Record<string, number |
     case 'THRESHOLD_BUY':
       return { dropPct: 5, window: 5, amount: 1000 };
     case 'THRESHOLD_SELL':
-      return { risePct: 5, window: 5, sellRatio: 100 };
+      return { risePct: 5, window: 5, amount: 1000 };
     case 'TAKE_PROFIT':
       return { gainPct: 20, sellRatio: 100 };
     case 'SMART_TAKE_PROFIT':
@@ -437,8 +437,13 @@ function StrategyForm({ editing, onSubmit, onClose }: StrategyModalProps) {
           <Form.Item name="window" label="观察窗口（交易日）" rules={[{ required: true, type: 'number', min: 1 }]}>
             <InputNumber style={{ width: '100%' }} min={1} />
           </Form.Item>
-          <Form.Item name="sellRatio" label="卖出比例（%）" rules={[{ required: true, type: 'number', min: 1, max: 100 }]}>
-            <InputNumber style={{ width: '100%' }} min={1} max={100} addonAfter="%" />
+          <Form.Item
+            name="amount"
+            label="卖出金额（元）"
+            tooltip="按成交净值换算份额卖出；持仓不足则全部卖出"
+            rules={[{ required: true, type: 'number', min: 1 }]}
+          >
+            <InputNumber style={{ width: '100%' }} min={1} step={500} />
           </Form.Item>
         </>
       )}
