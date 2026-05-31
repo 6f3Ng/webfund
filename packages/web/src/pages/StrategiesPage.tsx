@@ -20,6 +20,7 @@ import type { Strategy } from '@fund/core';
 
 const TEMPLATE_LABEL: Record<string, string> = {
   DCA: '定投',
+  BASE_POSITION: '底仓',
   SMART_DCA_CHANGE: '智能定投·涨跌幅',
   SMART_DCA_MA: '智能定投·均线',
   VALUE_AVERAGING: '目标市值法',
@@ -36,6 +37,8 @@ function describeParams(s: Strategy): string {
   switch (p.type) {
     case 'DCA':
       return `${p.period === 'WEEKLY' ? '每周' : '每月'} ${p.dayOfPeriod} 投 ¥${p.amount}`;
+    case 'BASE_POSITION':
+      return `首日一次性建仓 ¥${p.amount}`;
     case 'SMART_DCA_CHANGE':
       return `${p.period === 'WEEKLY' ? '每周' : '每月'} ${p.dayOfPeriod} 基准¥${p.baseAmount}，近${p.referenceWindow}日每${(p.stepPct * 100).toFixed(0)}%调${(p.adjustPct * 100).toFixed(0)}%（×${p.minFactor}~${p.maxFactor}）`;
     case 'SMART_DCA_MA':

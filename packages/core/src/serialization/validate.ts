@@ -52,6 +52,7 @@ export function validatePortfolio(data: unknown): Portfolio {
 
 const VALID_TEMPLATES = new Set([
   'DCA',
+  'BASE_POSITION',
   'SMART_DCA_CHANGE',
   'SMART_DCA_MA',
   'VALUE_AVERAGING',

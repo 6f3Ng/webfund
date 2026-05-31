@@ -1,6 +1,7 @@
 import type {
   Strategy,
   DcaParams,
+  BasePositionParams,
   SmartDcaChangeParams,
   SmartDcaMaParams,
   ValueAveragingParams,
@@ -28,6 +29,8 @@ export function evaluateStrategy(
   switch (strategy.params.type) {
     case 'DCA':
       return evalDca(strategy, strategy.params, ctx, state);
+    case 'BASE_POSITION':
+      return evalBasePosition(strategy, strategy.params, ctx, state);
     case 'SMART_DCA_CHANGE':
       return evalSmartDcaChange(strategy, strategy.params, ctx, state);
     case 'SMART_DCA_MA':
@@ -109,6 +112,27 @@ function evalDca(
       side: 'BUY',
       amount: p.amount,
       reason: `定投（${p.period === 'WEEKLY' ? '每周' : '每月'}）`,
+    },
+  ];
+}
+
+/** 底仓：首个交易日一次性建仓，之后不再操作 */
+function evalBasePosition(
+  s: Strategy,
+  p: BasePositionParams,
+  ctx: DayContext,
+  state: StrategyRuntimeState,
+): StrategyAction[] {
+  if (state.baseBought) return [];
+  state.baseBought = true; // 仅在首次求值（即第一个交易日）建仓
+  if (p.amount <= 0 || ctx.cash < p.amount) return [];
+  return [
+    {
+      strategyId: s.id,
+      fundCode: s.fundCode,
+      side: 'BUY',
+      amount: p.amount,
+      reason: `建立底仓¥${p.amount}`,
     },
   ];
 }

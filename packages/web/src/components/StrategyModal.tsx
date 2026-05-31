@@ -12,6 +12,7 @@ interface StrategyModalProps {
 
 const TEMPLATE_OPTIONS: { label: string; value: StrategyTemplate }[] = [
   { label: '定投（DCA）', value: 'DCA' },
+  { label: '底仓（首日一次性建仓）', value: 'BASE_POSITION' },
   { label: '智能定投-涨跌幅模式', value: 'SMART_DCA_CHANGE' },
   { label: '智能定投-均线模式', value: 'SMART_DCA_MA' },
   { label: '目标市值法定投（推荐）', value: 'VALUE_AVERAGING' },
@@ -36,6 +37,8 @@ function buildParams(
         dayOfPeriod: Number(v.dayOfPeriod),
         amount: Number(v.amount),
       };
+    case 'BASE_POSITION':
+      return { type: 'BASE_POSITION', amount: Number(v.amount) };
     case 'SMART_DCA_CHANGE':
       return {
         type: 'SMART_DCA_CHANGE',
@@ -111,6 +114,8 @@ function paramsToForm(p: StrategyParams): Record<string, number | string | boole
   switch (p.type) {
     case 'DCA':
       return { period: p.period, dayOfPeriod: p.dayOfPeriod, amount: p.amount };
+    case 'BASE_POSITION':
+      return { amount: p.amount };
     case 'SMART_DCA_CHANGE':
       return {
         period: p.period,
@@ -166,6 +171,8 @@ function defaultFormForTemplate(type: StrategyTemplate): Record<string, number |
   switch (type) {
     case 'DCA':
       return { period: 'MONTHLY', dayOfPeriod: 1, amount: 1000 };
+    case 'BASE_POSITION':
+      return { amount: 50000 };
     case 'SMART_DCA_CHANGE':
       return {
         period: 'MONTHLY',
@@ -305,6 +312,17 @@ function StrategyForm({ editing, onSubmit, onClose }: StrategyModalProps) {
             <InputNumber style={{ width: '100%' }} min={1} step={500} />
           </Form.Item>
         </>
+      )}
+
+      {templateType === 'BASE_POSITION' && (
+        <Form.Item
+          name="amount"
+          label="建仓金额（元）"
+          tooltip="在回测/模拟的第一个交易日一次性买入建立底仓，之后不再操作；可与定投等策略组合"
+          rules={[{ required: true, type: 'number', min: 1 }]}
+        >
+          <InputNumber style={{ width: '100%' }} min={1} step={10000} />
+        </Form.Item>
       )}
 
       {(templateType === 'SMART_DCA_CHANGE' || templateType === 'SMART_DCA_MA') && (

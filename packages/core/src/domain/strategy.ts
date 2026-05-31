@@ -3,6 +3,7 @@ import type { FundCode } from './fund';
 /** 策略模板类型 */
 export type StrategyTemplate =
   | 'DCA' // 定投
+  | 'BASE_POSITION' // 底仓（首日一次性建仓）
   | 'SMART_DCA_CHANGE' // 智能定投-涨跌幅模式
   | 'SMART_DCA_MA' // 智能定投-均线模式
   | 'VALUE_AVERAGING' // 目标市值法定投
@@ -21,6 +22,16 @@ export interface DcaParams {
   /** 周期内执行日：WEEKLY=1~7(周一~周日)，MONTHLY=1~28 */
   dayOfPeriod: number;
   /** 每次定投金额 */
+  amount: number;
+}
+
+/**
+ * 底仓：在回测/模拟的第一个交易日一次性买入建立基础仓位，之后不再操作。
+ * 常与定投/网格等组合，先建底仓再逐步加仓。
+ */
+export interface BasePositionParams {
+  type: 'BASE_POSITION';
+  /** 建仓金额（元） */
   amount: number;
 }
 
@@ -152,6 +163,7 @@ export interface GridParams {
 
 export type StrategyParams =
   | DcaParams
+  | BasePositionParams
   | SmartDcaChangeParams
   | SmartDcaMaParams
   | ValueAveragingParams

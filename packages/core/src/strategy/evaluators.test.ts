@@ -597,3 +597,39 @@ describe('SMART_TAKE_PROFIT 智能止盈', () => {
     ).toHaveLength(0);
   });
 });
+
+describe('BASE_POSITION 底仓', () => {
+  const s: Strategy = {
+    id: 'bp1',
+    name: '底仓',
+    templateType: 'BASE_POSITION',
+    fundCode: '000001',
+    enabled: true,
+    params: { type: 'BASE_POSITION', amount: 50000 },
+  };
+
+  it('首次求值建立底仓', () => {
+    const state = {};
+    const actions = evaluateStrategy(s, ctx({ date: '2024-01-02', navToday: () => 1.0 }), state);
+    expect(actions).toHaveLength(1);
+    expect(actions[0].side).toBe('BUY');
+    expect(actions[0].amount).toBe(50000);
+    expect(state).toMatchObject({ baseBought: true });
+  });
+
+  it('之后不再重复建仓', () => {
+    const state = {};
+    evaluateStrategy(s, ctx({ date: '2024-01-02', navToday: () => 1.0 }), state);
+    const again = evaluateStrategy(s, ctx({ date: '2024-01-03', navToday: () => 1.1 }), state);
+    expect(again).toHaveLength(0);
+  });
+
+  it('现金不足不建仓（但仍标记，不重试）', () => {
+    const actions = evaluateStrategy(
+      s,
+      ctx({ date: '2024-01-02', cash: 1000, navToday: () => 1.0 }),
+      {},
+    );
+    expect(actions).toHaveLength(0);
+  });
+});

@@ -43,6 +43,8 @@ export interface DayContext {
 /** 策略运行时可变状态（按 strategyId 维护） */
 export interface StrategyRuntimeState {
   initialized?: boolean;
+  /** BASE_POSITION：底仓是否已建立 */
+  baseBought?: boolean;
   /** DCA：上次定投周期键 */
   lastContribKey?: string;
   /** VALUE_AVERAGING：已执行的定投期数 */
