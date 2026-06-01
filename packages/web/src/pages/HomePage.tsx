@@ -29,6 +29,14 @@ import { TradeModal, type TradeType } from '@/components/TradeModal';
 import { PendingOrdersCard } from '@/components/PendingOrdersCard';
 import { TransactionsCard } from '@/components/TransactionsCard';
 import { fmtMoney, fmtPct, pnlColor } from '@/utils/format';
+import { getCachedFundName, prefetchFundInfo } from '@/services/fundInfoService';
+import {
+  resolveDisplayName,
+  sortByName,
+  sortByValue,
+  columnValueGetters,
+  type HoldingsSortContext,
+} from '@/utils/holdings';
 
 export function HomePage() {
   const { message } = App.useApp();
@@ -41,6 +49,9 @@ export function HomePage() {
     open: false,
     type: 'BUY',
   });
+
+  // 展示层本地名称表：预取回填后触发重渲染（名称属于展示层关注点，不进领域 store）
+  const [names, setNames] = useState<Record<string, string>>({});
 
   const pf = current();
 
@@ -56,6 +67,24 @@ export function HomePage() {
     if (codes.length > 0) refresh(codes);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentId, codes.length]);
+
+  // 预取未缓存的基金名称并回填本地名称表，触发重渲染（需求 4.5）
+  useEffect(() => {
+    let alive = true;
+    for (const code of codes) {
+      const cached = getCachedFundName(code);
+      if (cached) {
+        setNames((m) => (m[code] ? m : { ...m, [code]: cached }));
+        continue;
+      }
+      void prefetchFundInfo(code).then((info) => {
+        if (alive) setNames((m) => ({ ...m, [code]: info.name }));
+      });
+    }
+    return () => {
+      alive = false;
+    };
+  }, [codes]);
 
   const priceMap: PriceMap = useMemo(() => {
     const m: PriceMap = {};
@@ -85,11 +114,26 @@ export function HomePage() {
   const navColTitle = estimating ? '估值' : '净值';
   const growthColTitle = estimating ? '估算涨跌' : '当日涨跌';
 
+  // 排序上下文与名称解析：与单元格渲染同源（需求 5.3）
+  const sortCtx: HoldingsSortContext = { quotes, snap };
+  const resolveName = (code: string) => resolveDisplayName(code, names, getCachedFundName);
+
   const columns = [
-    { title: '基金代码', dataIndex: 'fundCode', key: 'fundCode' },
+    {
+      title: '基金',
+      key: 'fund',
+      sorter: sortByName((r) => resolveName(r.fundCode)),
+      render: (_: unknown, r: Position) => (
+        <Space direction="vertical" size={0}>
+          <span>{resolveName(r.fundCode)}</span>
+          <span style={{ fontSize: 12, color: '#999' }}>{r.fundCode}</span>
+        </Space>
+      ),
+    },
     {
       title: navColTitle,
       key: 'nav',
+      sorter: sortByValue((r) => columnValueGetters.nav(r, sortCtx)),
       render: (_: unknown, r: Position) => {
         const q = quotes[r.fundCode];
         return q && q.nav > 0 ? q.nav.toFixed(4) : '-';
@@ -98,28 +142,44 @@ export function HomePage() {
     {
       title: growthColTitle,
       key: 'growth',
+      sorter: sortByValue((r) => columnValueGetters.growth(r, sortCtx)),
       render: (_: unknown, r: Position) => {
         const q = quotes[r.fundCode];
         if (!q || q.nav <= 0) return '-';
         return <span style={{ color: pnlColor(q.growthPct) }}>{fmtPct(q.growthPct)}</span>;
       },
     },
-    { title: '持有份额', dataIndex: 'shares', key: 'shares', render: (s: number) => s.toFixed(2) },
+    {
+      title: '持有份额',
+      dataIndex: 'shares',
+      key: 'shares',
+      sorter: sortByValue((r) => columnValueGetters.shares(r, sortCtx)),
+      render: (s: number) => s.toFixed(2),
+    },
     {
       title: '可卖份额',
       dataIndex: 'availableShares',
       key: 'availableShares',
+      sorter: sortByValue((r) => columnValueGetters.availableShares(r, sortCtx)),
       render: (s: number) => s.toFixed(2),
     },
     {
       title: '成本单价',
       key: 'costPrice',
+      sorter: sortByValue((r) => columnValueGetters.costPrice(r, sortCtx)),
       render: (_: unknown, r: Position) => (r.shares > 0 ? (r.cost / r.shares).toFixed(4) : '-'),
     },
-    { title: '成本', dataIndex: 'cost', key: 'cost', render: fmtMoney },
+    {
+      title: '成本',
+      dataIndex: 'cost',
+      key: 'cost',
+      sorter: sortByValue((r) => columnValueGetters.cost(r, sortCtx)),
+      render: fmtMoney,
+    },
     {
       title: '市值',
       key: 'mv',
+      sorter: sortByValue((r) => columnValueGetters.mv(r, sortCtx)),
       render: (_: unknown, r: Position) => {
         const sp = snap?.positions.find((p) => p.fundCode === r.fundCode);
         return sp ? fmtMoney(sp.marketValue) : '-';
@@ -128,6 +188,7 @@ export function HomePage() {
     {
       title: '收益',
       key: 'profit',
+      sorter: sortByValue((r) => columnValueGetters.profit(r, sortCtx)),
       render: (_: unknown, r: Position) => {
         const sp = snap?.positions.find((p) => p.fundCode === r.fundCode);
         if (!sp) return '-';
