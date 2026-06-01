@@ -116,6 +116,118 @@ describe('THRESHOLD_BUY 阈值买入', () => {
   });
 });
 
+describe('SMART_THRESHOLD_BUY_CHANGE 智能阈值买入·涨跌幅', () => {
+  const s: Strategy = {
+    id: 'stb1',
+    name: '智能跌买',
+    templateType: 'SMART_THRESHOLD_BUY_CHANGE',
+    fundCode: '000001',
+    params: {
+      type: 'SMART_THRESHOLD_BUY_CHANGE',
+      dropPct: 0.05,
+      window: 3,
+      baseAmount: 2000,
+      stepPct: 0.05,
+      adjustPct: 0.5,
+      minFactor: 1,
+      maxFactor: 3,
+    },
+    enabled: true,
+  };
+
+  it('刚达阈值按基准金额买入（factor=1）', () => {
+    const actions = evaluateStrategy(
+      s,
+      ctx({
+        date: '2024-03-10',
+        dayIndex: 5,
+        navToday: () => 0.95,
+        navTradingDaysAgo: (_c, n) => (n === 3 ? 1.0 : undefined), // 跌 5%
+      }),
+      {},
+    );
+    expect(actions).toHaveLength(1);
+    expect(actions[0].side).toBe('BUY');
+    expect(actions[0].amount).toBe(2000);
+  });
+
+  it('跌幅越大买入金额越大（超额放大）', () => {
+    // 跌 15%：超额 10% = 2 档 → factor = 1 + (0.10/0.05)*0.5 = 2 → 4000
+    const actions = evaluateStrategy(
+      s,
+      ctx({
+        date: '2024-03-10',
+        dayIndex: 5,
+        navToday: () => 0.85,
+        navTradingDaysAgo: (_c, n) => (n === 3 ? 1.0 : undefined),
+      }),
+      {},
+    );
+    expect(actions).toHaveLength(1);
+    expect(actions[0].amount).toBe(4000);
+  });
+
+  it('买入倍数受上限约束', () => {
+    // 跌 60%：超额 55% 远超档位 → factor 触顶 maxFactor=3 → 6000
+    const actions = evaluateStrategy(
+      s,
+      ctx({
+        date: '2024-03-10',
+        dayIndex: 5,
+        navToday: () => 0.4,
+        navTradingDaysAgo: (_c, n) => (n === 3 ? 1.0 : undefined),
+      }),
+      {},
+    );
+    expect(actions).toHaveLength(1);
+    expect(actions[0].amount).toBe(6000);
+  });
+
+  it('跌幅不足不触发', () => {
+    expect(
+      evaluateStrategy(
+        s,
+        ctx({
+          date: '2024-03-10',
+          navToday: () => 0.98, // 跌 2%
+          navTradingDaysAgo: () => 1.0,
+        }),
+        {},
+      ),
+    ).toHaveLength(0);
+  });
+
+  it('现金不足不买', () => {
+    const actions = evaluateStrategy(
+      s,
+      ctx({
+        date: '2024-03-10',
+        dayIndex: 5,
+        cash: 1000,
+        navToday: () => 0.85,
+        navTradingDaysAgo: (_c, n) => (n === 3 ? 1.0 : undefined),
+      }),
+      {},
+    );
+    expect(actions).toHaveLength(0);
+  });
+
+  it('window 内不重复买', () => {
+    const state: StrategyRuntimeState = { lastBuyDayIndex: 5 };
+    const actions = evaluateStrategy(
+      s,
+      ctx({
+        date: '2024-03-11',
+        dayIndex: 6, // 距上次仅 1 天 < window(3)
+        navToday: () => 0.5,
+        navTradingDaysAgo: () => 1.0,
+      }),
+      state,
+    );
+    expect(actions).toHaveLength(0);
+  });
+});
+
 describe('THRESHOLD_SELL 阈值卖出', () => {
   const s: Strategy = {
     id: 'ts1',

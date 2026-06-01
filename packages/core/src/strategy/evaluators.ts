@@ -6,6 +6,7 @@ import type {
   SmartDcaMaParams,
   ValueAveragingParams,
   ThresholdBuyParams,
+  SmartThresholdBuyChangeParams,
   ThresholdSellParams,
   SmartThresholdSellChangeParams,
   TakeProfitParams,
@@ -40,6 +41,8 @@ export function evaluateStrategy(
       return evalValueAveraging(strategy, strategy.params, ctx, state);
     case 'THRESHOLD_BUY':
       return evalThresholdBuy(strategy, strategy.params, ctx, state);
+    case 'SMART_THRESHOLD_BUY_CHANGE':
+      return evalSmartThresholdBuyChange(strategy, strategy.params, ctx, state);
     case 'THRESHOLD_SELL':
       return evalThresholdSell(strategy, strategy.params, ctx, state);
     case 'SMART_THRESHOLD_SELL_CHANGE':
@@ -285,6 +288,49 @@ function evalThresholdBuy(
     }
   }
   return [];
+}
+
+/**
+ * 智能阈值买入-涨跌幅模式：近 window 日跌幅达 dropPct 起触发买入，
+ * 买入金额随超出阈值的跌幅放大（跌得越多买得越多）。
+ */
+function evalSmartThresholdBuyChange(
+  s: Strategy,
+  p: SmartThresholdBuyChangeParams,
+  ctx: DayContext,
+  state: StrategyRuntimeState,
+): StrategyAction[] {
+  const today = ctx.navToday(s.fundCode);
+  const past = ctx.navTradingDaysAgo(s.fundCode, p.window);
+  if (today === undefined || past === undefined || past === 0) return [];
+
+  const drop = (past - today) / past; // 正数表示下跌
+  if (drop < p.dropPct) return [];
+
+  // 避免连续重复触发：同一窗口内每 window 天最多买一次
+  if (state.lastBuyDayIndex !== undefined && ctx.dayIndex - state.lastBuyDayIndex < p.window) {
+    return [];
+  }
+
+  // 超额跌幅越大，买入金额倍数越高
+  const excess = drop - p.dropPct;
+  const factor =
+    p.stepPct > 0
+      ? clamp(1 + (excess / p.stepPct) * p.adjustPct, p.minFactor, p.maxFactor)
+      : clamp(1, p.minFactor, p.maxFactor);
+  const amount = Math.round(p.baseAmount * factor);
+  if (amount <= 0 || ctx.cash < amount) return [];
+
+  state.lastBuyDayIndex = ctx.dayIndex;
+  return [
+    {
+      strategyId: s.id,
+      fundCode: s.fundCode,
+      side: 'BUY',
+      amount,
+      reason: `近${p.window}日跌${(drop * 100).toFixed(2)}%触发智能买入¥${amount}(×${factor.toFixed(2)})`,
+    },
+  ];
 }
 
 /** 阈值卖出：近 window 个交易日涨幅达到 risePct 时卖出 amount 金额 */

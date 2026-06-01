@@ -8,6 +8,7 @@ export type StrategyTemplate =
   | 'SMART_DCA_MA' // 智能定投-均线模式
   | 'VALUE_AVERAGING' // 目标市值法定投
   | 'THRESHOLD_BUY' // 阈值买入（跌幅触发）
+  | 'SMART_THRESHOLD_BUY_CHANGE' // 智能阈值买入-涨跌幅模式
   | 'THRESHOLD_SELL' // 阈值卖出（涨幅触发）
   | 'SMART_THRESHOLD_SELL_CHANGE' // 智能阈值卖出-涨跌幅模式
   | 'TAKE_PROFIT' // 止盈
@@ -108,6 +109,33 @@ export interface ThresholdBuyParams {
 }
 
 /**
+ * 智能阈值买入-涨跌幅模式：与"智能阈值卖出-涨跌幅模式"对称的买入端策略。
+ * 当近 window 个交易日跌幅达到 dropPct 起触发买入，但买入金额随跌幅大小动态放大：
+ * 超出阈值的跌幅越多买得越多（越跌越买、抄底加码）。
+ * 超额跌幅 excess = drop − dropPct；
+ * 买入倍数 factor = clamp(1 + (excess / stepPct) × adjustPct, minFactor, maxFactor)；
+ * 买入金额 = baseAmount × factor（现金不足则跳过本次）。
+ * 与阈值买入一致带 window 冷却，避免连续重复触发。
+ */
+export interface SmartThresholdBuyChangeParams {
+  type: 'SMART_THRESHOLD_BUY_CHANGE';
+  /** 跌幅触发阈值（正数，如 0.05 表示跌 5% 起买） */
+  dropPct: number;
+  /** 观察窗口（交易日） */
+  window: number;
+  /** 基准买入金额（达到阈值时买入，元） */
+  baseAmount: number;
+  /** 每档跌幅（如 0.05 = 每多跌 5% 一档） */
+  stepPct: number;
+  /** 每档加码比例（如 0.5 = 每档买入金额 +50%） */
+  adjustPct: number;
+  /** 买入倍数下限（如 1） */
+  minFactor: number;
+  /** 买入倍数上限（如 3） */
+  maxFactor: number;
+}
+
+/**
  * 阈值卖出：近 window 个交易日涨幅达到 risePct 时卖出 amount 金额（按成交净值换算份额，持仓不足则全卖）
  */
 export interface ThresholdSellParams {
@@ -196,6 +224,7 @@ export type StrategyParams =
   | SmartDcaMaParams
   | ValueAveragingParams
   | ThresholdBuyParams
+  | SmartThresholdBuyChangeParams
   | ThresholdSellParams
   | SmartThresholdSellChangeParams
   | TakeProfitParams

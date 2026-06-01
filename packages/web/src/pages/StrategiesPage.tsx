@@ -25,6 +25,7 @@ const TEMPLATE_LABEL: Record<string, string> = {
   SMART_DCA_MA: '智能定投·均线',
   VALUE_AVERAGING: '目标市值法',
   THRESHOLD_BUY: '阈值买入',
+  SMART_THRESHOLD_BUY_CHANGE: '智能阈值买入·涨跌幅',
   THRESHOLD_SELL: '阈值卖出',
   SMART_THRESHOLD_SELL_CHANGE: '智能阈值卖出·涨跌幅',
   TAKE_PROFIT: '止盈',
@@ -48,6 +49,8 @@ function describeParams(s: Strategy): string {
       return `${p.period === 'WEEKLY' ? '每周' : '每月'} ${p.dayOfPeriod} 每期目标+¥${p.targetStep}${p.allowSell ? '，超额卖出' : '，只买不卖'}${p.maxBuy ? `，单期≤¥${p.maxBuy}` : ''}`;
     case 'THRESHOLD_BUY':
       return `近${p.window}日跌${(p.dropPct * 100).toFixed(1)}% 买 ¥${p.amount}`;
+    case 'SMART_THRESHOLD_BUY_CHANGE':
+      return `近${p.window}日跌${(p.dropPct * 100).toFixed(1)}%起 基准买¥${p.baseAmount}，每${(p.stepPct * 100).toFixed(0)}%加码${(p.adjustPct * 100).toFixed(0)}%（×${p.minFactor}~${p.maxFactor}）`;
     case 'THRESHOLD_SELL':
       return `近${p.window}日涨${(p.risePct * 100).toFixed(1)}% 卖 ¥${p.amount}`;
     case 'SMART_THRESHOLD_SELL_CHANGE':
