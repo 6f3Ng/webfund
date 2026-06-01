@@ -3,7 +3,10 @@ packages:
 
 verifyDepsBeforeRun: false
 
-onlyBuiltDependencies:
-  - esbuild
-  - workerd
-  - sharp
+# pnpm v11：批准依赖执行构建脚本（map 形式，值为 true）。
+# esbuild/workerd 是 wrangler 部署所必需的；否则 Cloudflare 构建会因
+# ERR_PNPM_IGNORED_BUILDS 在安装依赖阶段失败。
+allowBuilds:
+  esbuild: true
+  workerd: true
+  sharp: true
