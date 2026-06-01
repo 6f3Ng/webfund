@@ -80,23 +80,100 @@ pnpm typecheck     # 全量类型检查
 pnpm lint          # ESLint
 ```
 
-## 部署
+## 部署（Cloudflare）
 
-### 前端（Cloudflare Pages）
-- 构建命令：`pnpm install && pnpm --filter @fund/core build && pnpm --filter @fund/web build`
-- 输出目录：`packages/web/dist`
-- 环境变量：`VITE_API_BASE` 指向 Workers 对外地址（如 `https://fund-workers.<account>.workers.dev/api`）。
-  不设置时默认走同源 `/api`（需在 Pages 侧把 `/api/*` 路由到 Workers，或用自定义域）。
-- SPA 路由：`public/_redirects` 已配置 `/* /index.html 200`。
+本项目是 monorepo，需部署两个独立项目：后端 `packages/workers` 部署为 **Worker**，
+前端 `packages/web` 部署为 **Pages**。推荐用 Cloudflare 连接 GitHub 自动构建部署
+（下文以仓库 `6f3Ng/webfund`、子域 `6f3ng` 为例，请替换为你自己的）。
 
-### 边缘服务（Cloudflare Workers）
+### 前置：pnpm 构建脚本白名单（必看，否则构建失败）
+
+本项目用 pnpm v11。`wrangler` 依赖的 `workerd`/`esbuild` 需要执行安装脚本，
+而 pnpm 默认不执行第三方构建脚本，会在 Cloudflare 安装依赖阶段报
+`ERR_PNPM_IGNORED_BUILDS` 而失败。`pnpm-workspace.yaml` 已用 v11 的 `allowBuilds`
+映射（值为 `true`）批准它们，无需额外操作：
+
+```yaml
+# pnpm v11：注意是 allowBuilds 映射，不是 v10 的 onlyBuiltDependencies 列表
+allowBuilds:
+  esbuild: true
+  workerd: true
+  sharp: true
+```
+
+### 第一步：部署后端 Worker
+
+1. 控制台进入 **Workers & Pages** → **Create** → **Workers** → **Import a repository**，
+   选择本仓库。
+2. **Set up your application** 按下表填写：
+
+   | 配置项 | 值 |
+   |--------|-----|
+   | Project name | `fund-workers`（决定域名 `fund-workers.<子域>.workers.dev`） |
+   | Build command | `pnpm install && pnpm --filter @fund/core build` |
+   | Deploy command | `npx wrangler deploy --config packages/workers/wrangler.toml` |
+
+   说明：根目录没有 `wrangler.toml`，配置在 `packages/workers/`，部署命令必须用
+   `--config` 指过去；Worker 依赖 `@fund/core` 的 `dist`，故 build 命令要先构建 core。
+
+3. **Advanced settings**：
+   - Non-production branch deploy command（如保留预览）：
+     `npx wrangler versions upload --config packages/workers/wrangler.toml`；
+     个人项目也可取消勾选「Builds for non-production branches」忽略此项。
+   - Path：`/`；API token：保持默认自动创建；环境变量留空（CORS 在 `wrangler.toml` 配）。
+   - Root directory：保持仓库根 `/`（需在根目录跑 pnpm workspace 安装）。
+4. 点 **Deploy**，成功后得到地址 `https://fund-workers.<子域>.workers.dev`。
+
+### 第二步：部署前端 Pages
+
+1. 控制台进入 **Workers & Pages**，点底部 **Pages → Get started**（或直接访问
+   `https://dash.cloudflare.com/?to=/:account/pages`），**Connect to Git** 选择本仓库。
+2. **Set up builds and deployments** 按下表填写：
+
+   | 配置项 | 值 |
+   |--------|-----|
+   | Project name | `webfund`（域名 `webfund.pages.dev`） |
+   | Production branch | `main` |
+   | Framework preset | `None` |
+   | Build command | `pnpm install && pnpm --filter @fund/core build && pnpm --filter @fund/web build` |
+   | Build output directory | `packages/web/dist` |
+   | Root directory (advanced) | 留空（仓库根） |
+
+3. 展开 **Environment variables (advanced)**，添加（**必填**，否则前端找不到后端）：
+   - `VITE_API_BASE` = `https://fund-workers.<子域>.workers.dev/api`
+4. 点 **Save and Deploy**，得到前端地址 `https://webfund.pages.dev`。
+
+> SPA 路由：`packages/web/public/_redirects` 已配置 `/* /index.html 200`，
+> 刷新子路由（如 `/strategies`）不会 404。
+
+### 第三步：配置 CORS 白名单
+
+前端域名要加入后端 `packages/workers/wrangler.toml` 的 `ALLOWED_ORIGINS`，否则浏览器
+跨域请求被拦。本仓库已设为：
+
+```toml
+[vars]
+ALLOWED_ORIGINS = "https://webfund.pages.dev,http://localhost:5173"
+```
+
+改动推送到 `main` 后，Worker 会自动重新部署生效。换自定义域名时同步追加。
+
+### 验证
+
+打开 `https://webfund.pages.dev`，新建集合并加基金（如 161725），按 F12 看
+Network 中 `/api/*` 请求返回 200。常见问题：CORS 报错→检查 `ALLOWED_ORIGINS`；
+请求 404→检查前端 `VITE_API_BASE`。
+
+### 可选：KV 缓存
+
+如需跨实例缓存，`wrangler kv namespace create FUND_CACHE` 后在 `wrangler.toml`
+取消注释 `[[kv_namespaces]]` 并填入返回的 id；未绑定时退化为进程内缓存（单实例有效，仍可用）。
+
+### 本地用 wrangler 手动部署（备选）
+
 ```bash
 pnpm --filter @fund/workers deploy   # 等价 wrangler deploy
 ```
-部署前在 `packages/workers/wrangler.toml`：
-- 设置 `ALLOWED_ORIGINS` 为 Pages 域名（逗号分隔多个），用于 CORS 白名单。
-- 如需跨实例缓存，取消注释 `[[kv_namespaces]]` 并填入 `wrangler kv namespace create FUND_CACHE` 得到的 id。
-  未绑定 KV 时退化为进程内缓存（单实例有效，仍可用）。
 
 ## 数据来源说明
 
