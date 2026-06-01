@@ -184,6 +184,115 @@ describe('THRESHOLD_SELL 阈值卖出', () => {
   });
 });
 
+describe('SMART_THRESHOLD_SELL_CHANGE 智能阈值卖出·涨跌幅', () => {
+  const s: Strategy = {
+    id: 'sts1',
+    name: '智能涨卖',
+    templateType: 'SMART_THRESHOLD_SELL_CHANGE',
+    fundCode: '000001',
+    params: {
+      type: 'SMART_THRESHOLD_SELL_CHANGE',
+      risePct: 0.05,
+      window: 3,
+      baseAmount: 2000,
+      stepPct: 0.05,
+      adjustPct: 0.5,
+      minFactor: 1,
+      maxFactor: 3,
+    },
+    enabled: true,
+  };
+
+  it('刚达阈值按基准金额卖出（factor=1）', () => {
+    const actions = evaluateStrategy(
+      s,
+      ctx({
+        date: '2024-03-10',
+        dayIndex: 5,
+        navToday: () => 1.05,
+        navTradingDaysAgo: (_c, n) => (n === 3 ? 1.0 : undefined), // 涨 5%
+        position: () => ({ fundCode: '000001', shares: 10000, cost: 10000, avgCost: 1.0 }),
+      }),
+      {},
+    );
+    expect(actions).toHaveLength(1);
+    expect(actions[0].side).toBe('SELL');
+    expect(actions[0].amount).toBe(2000);
+  });
+
+  it('涨幅越大卖出金额越大（超额放大）', () => {
+    // 涨 15%：超额 10% = 2 档 → factor = 1 + (0.10/0.05)*0.5 = 2 → 4000
+    const actions = evaluateStrategy(
+      s,
+      ctx({
+        date: '2024-03-10',
+        dayIndex: 5,
+        navToday: () => 1.15,
+        navTradingDaysAgo: (_c, n) => (n === 3 ? 1.0 : undefined),
+        position: () => ({ fundCode: '000001', shares: 10000, cost: 10000, avgCost: 1.0 }),
+      }),
+      {},
+    );
+    expect(actions).toHaveLength(1);
+    expect(actions[0].amount).toBe(4000);
+  });
+
+  it('卖出倍数受上限约束', () => {
+    // 涨 100%：超额 95% 远超档位 → factor 触顶 maxFactor=3 → 6000
+    const actions = evaluateStrategy(
+      s,
+      ctx({
+        date: '2024-03-10',
+        dayIndex: 5,
+        navToday: () => 2.0,
+        navTradingDaysAgo: (_c, n) => (n === 3 ? 1.0 : undefined),
+        position: () => ({ fundCode: '000001', shares: 10000, cost: 10000, avgCost: 1.0 }),
+      }),
+      {},
+    );
+    expect(actions).toHaveLength(1);
+    expect(actions[0].amount).toBe(6000);
+  });
+
+  it('涨幅不足/无持仓不触发', () => {
+    expect(
+      evaluateStrategy(
+        s,
+        ctx({
+          date: '2024-03-10',
+          navToday: () => 1.02,
+          navTradingDaysAgo: () => 1.0,
+          position: () => ({ fundCode: '000001', shares: 10000, cost: 10000, avgCost: 1.0 }),
+        }),
+        {},
+      ),
+    ).toHaveLength(0);
+    expect(
+      evaluateStrategy(
+        s,
+        ctx({ date: '2024-03-10', navToday: () => 1.2, navTradingDaysAgo: () => 1.0 }),
+        {},
+      ),
+    ).toHaveLength(0);
+  });
+
+  it('window 内不重复卖', () => {
+    const state: StrategyRuntimeState = { lastSellDayIndex: 5 };
+    const actions = evaluateStrategy(
+      s,
+      ctx({
+        date: '2024-03-11',
+        dayIndex: 6, // 距上次仅 1 天 < window(3)
+        navToday: () => 1.5,
+        navTradingDaysAgo: () => 1.0,
+        position: () => ({ fundCode: '000001', shares: 10000, cost: 10000, avgCost: 1.0 }),
+      }),
+      state,
+    );
+    expect(actions).toHaveLength(0);
+  });
+});
+
 describe('TAKE_PROFIT / STOP_LOSS', () => {
   it('止盈触发', () => {
     const s: Strategy = {

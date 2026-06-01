@@ -9,6 +9,7 @@ export type StrategyTemplate =
   | 'VALUE_AVERAGING' // 目标市值法定投
   | 'THRESHOLD_BUY' // 阈值买入（跌幅触发）
   | 'THRESHOLD_SELL' // 阈值卖出（涨幅触发）
+  | 'SMART_THRESHOLD_SELL_CHANGE' // 智能阈值卖出-涨跌幅模式
   | 'TAKE_PROFIT' // 止盈
   | 'SMART_TAKE_PROFIT' // 智能止盈（分档加码卖出）
   | 'STOP_LOSS' // 止损
@@ -119,6 +120,33 @@ export interface ThresholdSellParams {
   amount: number;
 }
 
+/**
+ * 智能阈值卖出-涨跌幅模式：与"智能定投-涨跌幅模式"对称的卖出端策略。
+ * 当近 window 个交易日涨幅达到 risePct 起触发卖出，但卖出金额随涨幅大小动态放大：
+ * 超出阈值的涨幅越多卖得越多。
+ * 超额涨幅 excess = rise − risePct；
+ * 卖出倍数 factor = clamp(1 + (excess / stepPct) × adjustPct, minFactor, maxFactor)；
+ * 卖出金额 = baseAmount × factor（按成交净值换算份额，持仓不足则全卖）。
+ * 与阈值卖出一致带 window 冷却，避免连续重复触发。
+ */
+export interface SmartThresholdSellChangeParams {
+  type: 'SMART_THRESHOLD_SELL_CHANGE';
+  /** 涨幅触发阈值（正数，如 0.05 表示涨 5% 起卖） */
+  risePct: number;
+  /** 观察窗口（交易日） */
+  window: number;
+  /** 基准卖出金额（达到阈值时卖出，元） */
+  baseAmount: number;
+  /** 每档涨幅（如 0.05 = 每多涨 5% 一档） */
+  stepPct: number;
+  /** 每档加码比例（如 0.5 = 每档卖出金额 +50%） */
+  adjustPct: number;
+  /** 卖出倍数下限（如 1） */
+  minFactor: number;
+  /** 卖出倍数上限（如 3） */
+  maxFactor: number;
+}
+
 /** 止盈：持仓收益率达到 gainPct 时卖出 sellRatio 比例 */
 export interface TakeProfitParams {
   type: 'TAKE_PROFIT';
@@ -169,6 +197,7 @@ export type StrategyParams =
   | ValueAveragingParams
   | ThresholdBuyParams
   | ThresholdSellParams
+  | SmartThresholdSellChangeParams
   | TakeProfitParams
   | SmartTakeProfitParams
   | StopLossParams

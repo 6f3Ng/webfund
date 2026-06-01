@@ -18,6 +18,7 @@ const TEMPLATE_OPTIONS: { label: string; value: StrategyTemplate }[] = [
   { label: '目标市值法定投（推荐）', value: 'VALUE_AVERAGING' },
   { label: '阈值买入（跌幅触发）', value: 'THRESHOLD_BUY' },
   { label: '阈值卖出（涨幅触发）', value: 'THRESHOLD_SELL' },
+  { label: '智能阈值卖出-涨跌幅模式', value: 'SMART_THRESHOLD_SELL_CHANGE' },
   { label: '止盈', value: 'TAKE_PROFIT' },
   { label: '智能止盈（分档加码卖出）', value: 'SMART_TAKE_PROFIT' },
   { label: '止损', value: 'STOP_LOSS' },
@@ -86,6 +87,17 @@ function buildParams(
         window: Number(v.window),
         amount: Number(v.amount),
       };
+    case 'SMART_THRESHOLD_SELL_CHANGE':
+      return {
+        type: 'SMART_THRESHOLD_SELL_CHANGE',
+        risePct: Number(v.risePct) / 100,
+        window: Number(v.window),
+        baseAmount: Number(v.baseAmount),
+        stepPct: Number(v.stepPct) / 100,
+        adjustPct: Number(v.adjustPct) / 100,
+        minFactor: Number(v.minFactor),
+        maxFactor: Number(v.maxFactor),
+      };
     case 'TAKE_PROFIT':
       return { type: 'TAKE_PROFIT', gainPct: Number(v.gainPct) / 100, sellRatio: Number(v.sellRatio) / 100 };
     case 'SMART_TAKE_PROFIT':
@@ -150,6 +162,16 @@ function paramsToForm(p: StrategyParams): Record<string, number | string | boole
       return { dropPct: p.dropPct * 100, window: p.window, amount: p.amount };
     case 'THRESHOLD_SELL':
       return { risePct: p.risePct * 100, window: p.window, amount: p.amount };
+    case 'SMART_THRESHOLD_SELL_CHANGE':
+      return {
+        risePct: p.risePct * 100,
+        window: p.window,
+        baseAmount: p.baseAmount,
+        stepPct: p.stepPct * 100,
+        adjustPct: p.adjustPct * 100,
+        minFactor: p.minFactor,
+        maxFactor: p.maxFactor,
+      };
     case 'TAKE_PROFIT':
       return { gainPct: p.gainPct * 100, sellRatio: p.sellRatio * 100 };
     case 'SMART_TAKE_PROFIT':
@@ -201,6 +223,16 @@ function defaultFormForTemplate(type: StrategyTemplate): Record<string, number |
       return { dropPct: 5, window: 5, amount: 1000 };
     case 'THRESHOLD_SELL':
       return { risePct: 5, window: 5, amount: 1000 };
+    case 'SMART_THRESHOLD_SELL_CHANGE':
+      return {
+        risePct: 5,
+        window: 5,
+        baseAmount: 1000,
+        stepPct: 5,
+        adjustPct: 50,
+        minFactor: 1,
+        maxFactor: 3,
+      };
     case 'TAKE_PROFIT':
       return { gainPct: 20, sellRatio: 100 };
     case 'SMART_TAKE_PROFIT':
@@ -462,6 +494,52 @@ function StrategyForm({ editing, onSubmit, onClose }: StrategyModalProps) {
             rules={[{ required: true, type: 'number', min: 1 }]}
           >
             <InputNumber style={{ width: '100%' }} min={1} step={500} />
+          </Form.Item>
+        </>
+      )}
+
+      {templateType === 'SMART_THRESHOLD_SELL_CHANGE' && (
+        <>
+          <Form.Item
+            name="risePct"
+            label="涨幅触发阈值（%）"
+            tooltip="近观察窗口涨幅达到该值起开始卖出"
+            rules={[{ required: true, type: 'number', min: 0.1 }]}
+          >
+            <InputNumber style={{ width: '100%' }} min={0.1} step={1} addonAfter="%" />
+          </Form.Item>
+          <Form.Item name="window" label="观察窗口（交易日）" rules={[{ required: true, type: 'number', min: 1 }]}>
+            <InputNumber style={{ width: '100%' }} min={1} />
+          </Form.Item>
+          <Form.Item
+            name="baseAmount"
+            label="基准卖出金额（元）"
+            tooltip="达到阈值时卖出的基准金额；涨幅越高按下方比例放大"
+            rules={[{ required: true, type: 'number', min: 1 }]}
+          >
+            <InputNumber style={{ width: '100%' }} min={1} step={500} />
+          </Form.Item>
+          <Form.Item
+            name="stepPct"
+            label="每档涨幅（%）"
+            tooltip="超出阈值的涨幅每达到该幅度，按下方比例加码一档卖出"
+            rules={[{ required: true, type: 'number', min: 0.1 }]}
+          >
+            <InputNumber style={{ width: '100%' }} min={0.1} step={1} addonAfter="%" />
+          </Form.Item>
+          <Form.Item
+            name="adjustPct"
+            label="每档加码比例（%）"
+            tooltip="涨幅每上一档，卖出金额增加的幅度（涨得越多卖得越多）"
+            rules={[{ required: true, type: 'number', min: 0 }]}
+          >
+            <InputNumber style={{ width: '100%' }} min={0} step={10} addonAfter="%" />
+          </Form.Item>
+          <Form.Item name="minFactor" label="卖出倍数下限" rules={[{ required: true, type: 'number', min: 0 }]}>
+            <InputNumber style={{ width: '100%' }} min={0} step={0.1} />
+          </Form.Item>
+          <Form.Item name="maxFactor" label="卖出倍数上限" rules={[{ required: true, type: 'number', min: 1 }]}>
+            <InputNumber style={{ width: '100%' }} min={1} step={0.5} />
           </Form.Item>
         </>
       )}

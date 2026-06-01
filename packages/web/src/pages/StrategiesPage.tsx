@@ -26,6 +26,7 @@ const TEMPLATE_LABEL: Record<string, string> = {
   VALUE_AVERAGING: '目标市值法',
   THRESHOLD_BUY: '阈值买入',
   THRESHOLD_SELL: '阈值卖出',
+  SMART_THRESHOLD_SELL_CHANGE: '智能阈值卖出·涨跌幅',
   TAKE_PROFIT: '止盈',
   SMART_TAKE_PROFIT: '智能止盈',
   STOP_LOSS: '止损',
@@ -49,6 +50,8 @@ function describeParams(s: Strategy): string {
       return `近${p.window}日跌${(p.dropPct * 100).toFixed(1)}% 买 ¥${p.amount}`;
     case 'THRESHOLD_SELL':
       return `近${p.window}日涨${(p.risePct * 100).toFixed(1)}% 卖 ¥${p.amount}`;
+    case 'SMART_THRESHOLD_SELL_CHANGE':
+      return `近${p.window}日涨${(p.risePct * 100).toFixed(1)}%起 基准卖¥${p.baseAmount}，每${(p.stepPct * 100).toFixed(0)}%加码${(p.adjustPct * 100).toFixed(0)}%（×${p.minFactor}~${p.maxFactor}）`;
     case 'TAKE_PROFIT':
       return `+${(p.gainPct * 100).toFixed(0)}% 卖${(p.sellRatio * 100).toFixed(0)}%`;
     case 'SMART_TAKE_PROFIT':

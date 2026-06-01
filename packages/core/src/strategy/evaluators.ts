@@ -7,6 +7,7 @@ import type {
   ValueAveragingParams,
   ThresholdBuyParams,
   ThresholdSellParams,
+  SmartThresholdSellChangeParams,
   TakeProfitParams,
   SmartTakeProfitParams,
   StopLossParams,
@@ -41,6 +42,8 @@ export function evaluateStrategy(
       return evalThresholdBuy(strategy, strategy.params, ctx, state);
     case 'THRESHOLD_SELL':
       return evalThresholdSell(strategy, strategy.params, ctx, state);
+    case 'SMART_THRESHOLD_SELL_CHANGE':
+      return evalSmartThresholdSellChange(strategy, strategy.params, ctx, state);
     case 'TAKE_PROFIT':
       return evalTakeProfit(strategy, strategy.params, ctx);
     case 'SMART_TAKE_PROFIT':
@@ -315,6 +318,51 @@ function evalThresholdSell(
     ];
   }
   return [];
+}
+
+/**
+ * 智能阈值卖出-涨跌幅模式：近 window 日涨幅达 risePct 起触发卖出，
+ * 卖出金额随超出阈值的涨幅放大（涨得越多卖得越多）。
+ */
+function evalSmartThresholdSellChange(
+  s: Strategy,
+  p: SmartThresholdSellChangeParams,
+  ctx: DayContext,
+  state: StrategyRuntimeState,
+): StrategyAction[] {
+  const pos = ctx.position(s.fundCode);
+  if (!pos || pos.shares <= 0) return [];
+  const today = ctx.navToday(s.fundCode);
+  const past = ctx.navTradingDaysAgo(s.fundCode, p.window);
+  if (today === undefined || past === undefined || past === 0) return [];
+
+  const rise = (today - past) / past; // 正数表示上涨
+  if (rise < p.risePct) return [];
+
+  // 避免连续重复触发：同一窗口内每 window 天最多卖一次
+  if (state.lastSellDayIndex !== undefined && ctx.dayIndex - state.lastSellDayIndex < p.window) {
+    return [];
+  }
+
+  // 超额涨幅越大，卖出金额倍数越高
+  const excess = rise - p.risePct;
+  const factor =
+    p.stepPct > 0
+      ? clamp(1 + (excess / p.stepPct) * p.adjustPct, p.minFactor, p.maxFactor)
+      : clamp(1, p.minFactor, p.maxFactor);
+  const amount = Math.round(p.baseAmount * factor);
+  if (amount <= 0) return [];
+
+  state.lastSellDayIndex = ctx.dayIndex;
+  return [
+    {
+      strategyId: s.id,
+      fundCode: s.fundCode,
+      side: 'SELL',
+      amount,
+      reason: `近${p.window}日涨${(rise * 100).toFixed(2)}%触发智能卖出¥${amount}(×${factor.toFixed(2)})`,
+    },
+  ];
 }
 
 /** 止盈：持仓收益率达到 gainPct 卖出 sellRatio */
