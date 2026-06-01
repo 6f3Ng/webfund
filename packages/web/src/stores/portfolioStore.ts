@@ -40,6 +40,17 @@ async function loadNavForSettlement(code: string, start: string, end: string): P
   }
 }
 
+/**
+ * 是否存在在途交易状态：`pendingOrders`/`pendingCash`/`pendingShares` 任一非空为 true。
+ * 历史已确认流水 `transactions` 不计入。
+ */
+export function hasInFlightState(pf: Portfolio): boolean {
+  return pf.pendingOrders.length > 0 || pf.pendingCash.length > 0 || pf.pendingShares.length > 0;
+}
+
+/** UI 是否允许编辑（语义取反，便于阅读），供 store 与 PortfoliosPage 共用。 */
+export const canEdit = (pf: Portfolio): boolean => !hasInFlightState(pf);
+
 interface PortfolioState {
   portfolios: Portfolio[];
   currentId: string | null;
@@ -51,6 +62,10 @@ interface PortfolioState {
 
   create: (name: string, initialCash: number, positions?: InitialPosition[]) => Portfolio;
   rename: (id: string, name: string) => void;
+  edit: (
+    id: string,
+    data: { name: string; initialCash: number; positions?: InitialPosition[] },
+  ) => Portfolio;
   remove: (id: string) => void;
 
   buy: (params: { fundCode: string; amount: number; submitAt?: string }) => Promise<void>;
@@ -115,6 +130,37 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
     pf.name = name;
     repo.save(pf);
     get().load();
+  },
+
+  edit: (id, data) => {
+    const existing = repo.get(id);
+    if (!existing) throw new Error('集合不存在');
+
+    // 纵深防御：在途交易时拒绝编辑（需求 3.3）
+    if (hasInFlightState(existing)) {
+      throw new Error('存在在途交易，暂不可编辑');
+    }
+
+    // 复用工厂重建：保留原 id 与 createdAt（需求 2.2）。
+    // createPortfolio 内部先校验后构造：initialCash<0 或任一 costPrice<0 时先抛错，
+    // 因此下方 repo.save / set 不会执行，既有集合不被修改（需求 2.6/2.7/3.3）。
+    const rebuilt = createPortfolio({
+      name: data.name,
+      initialCash: data.initialCash,
+      positions: data.positions,
+      id: existing.id,
+      createdAt: existing.createdAt,
+    });
+
+    repo.save(rebuilt);
+    set({
+      portfolios: get().portfolios.map((p) => (p.id === id ? rebuilt : p)),
+    });
+
+    // 异步补全持仓基金名称（需求 2.5），不阻塞编辑
+    for (const p of rebuilt.positions) void prefetchFundInfo(p.fundCode);
+
+    return rebuilt;
   },
 
   remove: (id) => {
