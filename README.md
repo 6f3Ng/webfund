@@ -140,17 +140,28 @@ allowBuilds:
    | Build output directory | `packages/web/dist` |
    | Root directory (advanced) | 留空（仓库根） |
 
-3. 展开 **Environment variables (advanced)**，添加（**必填**，否则前端找不到后端）：
-   - `VITE_API_BASE` = `https://fund-workers.<子域>.workers.dev/api`
+3. 展开 **Environment variables (advanced)**，添加：
+   - `WORKER_API_HOST` = `fund-workers.<子域>.workers.dev`（**不含** `https://`，仅域名）
 4. 点 **Save and Deploy**，得到前端地址 `https://webfund.pages.dev`。
 
 > SPA 路由：`packages/web/public/_redirects` 已配置 `/* /index.html 200`，
 > 刷新子路由（如 `/strategies`）不会 404。
 
+#### Pages Functions 代理（大陆访问）
+
+`*.workers.dev` 在大陆被墙，`*.pages.dev` 可访问。仓库根 `functions/api/[[path]].js`
+会将 Pages 域名上的 `/api/*` 请求代理到 Workers 后端，前端代码无需改动
+（`config.ts` 中 `API_BASE` 默认为 `/api`，同源请求）。
+
+**配置方式（二选一）：**
+- Pages 项目 Settings → Environment variables 添加 `WORKER_API_HOST`
+- 直接编辑 `functions/api/[[path]].js` 中的 `DEFAULT_WORKER_HOST`
+
 ### 第三步：配置 CORS 白名单
 
 前端域名要加入后端 `packages/workers/wrangler.toml` 的 `ALLOWED_ORIGINS`，否则浏览器
-跨域请求被拦。本仓库已设为：
+跨域请求被拦（仅直接访问 Workers 时生效，走 Pages 代理时同源无需 CORS）。
+本仓库已设为：
 
 ```toml
 [vars]
@@ -162,8 +173,8 @@ ALLOWED_ORIGINS = "https://webfund.pages.dev,http://localhost:5173"
 ### 验证
 
 打开 `https://webfund.pages.dev`，新建集合并加基金（如 161725），按 F12 看
-Network 中 `/api/*` 请求返回 200。常见问题：CORS 报错→检查 `ALLOWED_ORIGINS`；
-请求 404→检查前端 `VITE_API_BASE`。
+Network 中 `/api/*` 请求返回 200。常见问题：502 错误→检查 `WORKER_API_HOST` 配置；
+CORS 报错→检查 `ALLOWED_ORIGINS`。
 
 ### 可选：KV 缓存
 
