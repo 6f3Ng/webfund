@@ -63,6 +63,13 @@ describe('Portfolio 序列化', () => {
     expect(decoded).toEqual(pf);
   });
 
+  it('settings.strategySetIds 往返保留（集合配置的策略集）', () => {
+    const pf = samplePortfolio();
+    pf.settings = { ...pf.settings, strategySetIds: ['ss_a', 'ss_b'] };
+    const decoded = importPortfolio(exportPortfolio(pf), { assignNewId: false });
+    expect(decoded.settings.strategySetIds).toEqual(['ss_a', 'ss_b']);
+  });
+
   it('导入默认重分配新 id', () => {
     const pf = samplePortfolio();
     const decoded = importPortfolio(exportPortfolio(pf));

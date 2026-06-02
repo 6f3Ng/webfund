@@ -26,25 +26,27 @@ export interface SettlementResult {
  * 推进组合到 asOf 日：
  *  1. 释放在途份额（availableDate <= asOf）→ 增加可卖份额；
  *  2. 释放在途资金（availableDate <= asOf）→ 增加可用现金；
- *  3. 结算确认日 <= asOf 且净值已可得的 PENDING 订单。
- * 该函数幂等地多次调用安全（已结算的不再处理）。
+ *  3. 结算「份额确认日（shareConfirmDate, T+N）<= asOf」且成交净值（confirmDate/T 净值）已可得的 PENDING 订单。
+ *
+ * 场外基金规则：T 日按收盘净值成交，份额在 T+N 日确认（普通 T+1，QDII/港基/FOF 更久）。
+ * 在份额确认前订单保持「待确认」，确认后才计入持仓。该函数幂等，多次调用安全。
  */
 export function settlePortfolio(portfolio: Portfolio, ctx: SettlementContext): SettlementResult {
-  releasePendingShares(portfolio, ctx.asOf);
-  releasePendingCash(portfolio, ctx.asOf);
-
   const confirmedOrders: Order[] = [];
   const newTxns: Transaction[] = [];
   const remaining: Order[] = [];
 
-  // 按确认日排序，保证先到的先结算（影响现金可用顺序）
-  const ordered = [...portfolio.pendingOrders].sort((a, b) =>
-    a.confirmDate < b.confirmDate ? -1 : a.confirmDate > b.confirmDate ? 1 : 0,
-  );
+  // 按份额确认日排序，保证先确认的先结算（影响现金可用顺序）
+  const ordered = [...portfolio.pendingOrders].sort((a, b) => {
+    const ka = shareConfirmDateOf(a);
+    const kb = shareConfirmDateOf(b);
+    return ka < kb ? -1 : ka > kb ? 1 : 0;
+  });
 
   for (const order of ordered) {
     if (order.status !== 'PENDING') continue;
-    if (!dateLte(order.confirmDate, ctx.asOf)) {
+    // 份额确认日未到 → 保持「待确认」
+    if (!dateLte(shareConfirmDateOf(order), ctx.asOf)) {
       remaining.push(order);
       continue;
     }
@@ -54,13 +56,19 @@ export function settlePortfolio(portfolio: Portfolio, ctx: SettlementContext): S
       confirmedOrders.push(order);
       newTxns.push(...settled);
     } else {
-      // 确认日已到但净值尚不可得，保持 pending
+      // 份额确认日已到但成交净值尚不可得，保持 pending
       remaining.push(order);
     }
   }
 
   portfolio.pendingOrders = remaining;
   portfolio.transactions.push(...newTxns);
+
+  // 订单确认后再释放到期的在途资金/份额：保证当日确认的卖出回款若已到到账日可同日释放，
+  // 同时兼容旧数据中遗留的 pendingShares（新流程买入/转入在确认时即直接到账）。
+  releasePendingShares(portfolio, ctx.asOf);
+  releasePendingCash(portfolio, ctx.asOf);
+
   pruneEmptyPositions(portfolio);
 
   return {
@@ -68,6 +76,11 @@ export function settlePortfolio(portfolio: Portfolio, ctx: SettlementContext): S
     transactions: newTxns,
     stillPending: remaining.length,
   };
+}
+
+/** 取份额确认日；兼容旧数据（缺失时回退成交日 confirmDate）。 */
+function shareConfirmDateOf(order: Order): string {
+  return order.shareConfirmDate ?? order.confirmDate;
 }
 
 function releasePendingShares(portfolio: Portfolio, asOf: string): void {
@@ -117,15 +130,8 @@ function settleBuy(portfolio: Portfolio, order: Order, ctx: SettlementContext): 
   pos.cost = roundAmount(pos.cost + order.amount!); // 成本含申购费（总投入口径）
   pos.lots.push({ acquiredDate: order.confirmDate, shares, nav });
 
-  // 份额 T+1 可卖
-  const availableDate = ctx.calendar.addTradingDays(order.confirmDate, 1);
-  portfolio.pendingShares.push({
-    id: generateId('psh'),
-    fundCode: order.fundCode,
-    availableDate,
-    shares,
-    sourceOrderId: order.id,
-  });
+  // 结算发生在份额确认日（T+N），份额此刻确认到账即可赎回
+  pos.availableShares = roundShares(pos.availableShares + shares);
 
   return [
     {
@@ -168,8 +174,10 @@ function settleSell(
   pos.cost = roundAmount(Math.max(0, pos.cost - costReduction));
   pos.lots = remainingLots;
 
-  // 资金 T+N 到账
-  const availableDate = ctx.calendar.addTradingDays(order.confirmDate, info.settleLagDays);
+  // 资金到账日 = max(成交日 T + settleLagDays, 份额确认日)，保证不早于确认时点
+  const lagDate = ctx.calendar.addTradingDays(order.confirmDate, info.settleLagDays);
+  const confirmDate = order.shareConfirmDate ?? order.confirmDate;
+  const availableDate = dateLte(confirmDate, lagDate) ? lagDate : confirmDate;
   portfolio.pendingCash.push({
     id: generateId('pc'),
     availableDate,
@@ -223,15 +231,8 @@ function settleConvert(
   toPos.cost = roundAmount(toPos.cost + netAmount);
   toPos.lots.push({ acquiredDate: order.confirmDate, shares: inShares, nav: toNav });
 
-  // 转入份额 T+1 可卖
-  const availableDate = ctx.calendar.addTradingDays(order.confirmDate, 1);
-  portfolio.pendingShares.push({
-    id: generateId('psh'),
-    fundCode: order.targetFundCode!,
-    availableDate,
-    shares: inShares,
-    sourceOrderId: order.id,
-  });
+  // 结算发生在份额确认日（T+N），转入份额此刻确认到账即可赎回
+  toPos.availableShares = roundShares(toPos.availableShares + inShares);
 
   return [
     {

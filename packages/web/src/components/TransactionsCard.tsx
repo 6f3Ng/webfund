@@ -32,7 +32,7 @@ export function TransactionsCard({ portfolio }: { portfolio: Portfolio }) {
       {data.length === 0 ? (
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无成交记录" />
       ) : (
-        <Table rowKey="id" dataSource={data} columns={columns} pagination={{ pageSize: 10 }} size="small" />
+        <Table rowKey="id" dataSource={data} columns={columns} pagination={{ pageSize: 10 }} size="small" scroll={{ x: 'max-content' }} />
       )}
     </Card>
   );

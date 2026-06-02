@@ -34,7 +34,7 @@ export function SettingsPage() {
           />
         </Form.Item>
 
-        <Form.Item label="默认申购费率">
+        <Form.Item label="默认申购费率（A 类基金）">
           <Space>
             <InputNumber
               min={0}
@@ -44,7 +44,38 @@ export function SettingsPage() {
               onChange={(v) => update({ defaultPurchaseFeeRate: v ?? 0.015 })}
             />
             <Typography.Text type="secondary">
-              {(settings.defaultPurchaseFeeRate * 100).toFixed(2)}%（外扣）
+              {(settings.defaultPurchaseFeeRate * 100).toFixed(2)}%（前端收费，外扣）
+            </Typography.Text>
+          </Space>
+        </Form.Item>
+
+        <Form.Item label="申购费率（C 类基金）">
+          <Space>
+            <InputNumber
+              min={0}
+              max={0.05}
+              step={0.001}
+              value={settings.defaultPurchaseFeeRateC}
+              onChange={(v) => update({ defaultPurchaseFeeRateC: v ?? 0 })}
+            />
+            <Typography.Text type="secondary">
+              {(settings.defaultPurchaseFeeRateC * 100).toFixed(2)}%（C 类通常免申购费，改收销售服务费）
+            </Typography.Text>
+          </Space>
+        </Form.Item>
+
+        <Form.Item label="多基金接口请求方式">
+          <Space>
+            <Switch
+              checkedChildren="顺序"
+              unCheckedChildren="并发"
+              checked={settings.sequentialRequests}
+              onChange={(v) => update({ sequentialRequests: v })}
+            />
+            <Typography.Text type="secondary">
+              {settings.sequentialRequests
+                ? '顺序调用（每只基金的行情/信息并行、不同基金间逐只串行，规避第三方接口 429 限流，推荐）'
+                : '并发调用（所有基金同时请求，更快，持仓基金较多时可能触发限流）'}
             </Typography.Text>
           </Space>
         </Form.Item>

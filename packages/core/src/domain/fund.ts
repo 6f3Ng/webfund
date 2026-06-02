@@ -33,6 +33,11 @@ export interface FundInfo {
   convertFeeRate: number;
   /** 赎回资金到账滞后交易日数 T+N，默认 1 */
   settleLagDays: number;
+  /**
+   * 份额确认滞后交易日数：申报成交日（T）之后第 confirmLagDays 个交易日确认份额（T+N 确认）。
+   * 普通场外基金默认 1（T+1 确认）；QDII / 港基 / FOF 等特殊产品确认更久（如 T+2）。
+   */
+  confirmLagDays: number;
 }
 
 /** 单日净值点 */
@@ -55,6 +60,26 @@ export const DEFAULT_REDEEM_FEE_TIERS: RedeemFeeTier[] = [
   { minHoldDays: 730, rate: 0 },
 ];
 
+/** 基金份额类别（影响申购费：A 类前端收费，C 类通常免申购费、收销售服务费） */
+export type ShareClass = 'A' | 'C' | 'UNKNOWN';
+
+/**
+ * 从基金名称粗略识别份额类别（A/C）。
+ * 约定：名称以「A」或「C」结尾，或含「A类」「C类」「(A)」「(C)」等标记时判定；
+ * 无法识别返回 UNKNOWN（调用方按 A 类默认费率处理）。
+ */
+export function detectShareClass(name?: string): ShareClass {
+  if (!name) return 'UNKNOWN';
+  const n = name.trim().toUpperCase();
+  // 末尾的 A/C（如「招商中证白酒指数(LOF)A」「易方达蓝筹C」）
+  const tail = /([AC])\s*$/.exec(n);
+  if (tail) return tail[1] as ShareClass;
+  // 显式标记「A类/C类」「(A)/(C)」「A份额/C份额」
+  if (/[（(]\s*C\s*[)）]|C\s*类|C\s*份额/.test(n)) return 'C';
+  if (/[（(]\s*A\s*[)）]|A\s*类|A\s*份额/.test(n)) return 'A';
+  return 'UNKNOWN';
+}
+
 export function createDefaultFundInfo(code: FundCode, name = '', type: FundType = 'HYBRID'): FundInfo {
   return {
     code,
@@ -63,6 +88,39 @@ export function createDefaultFundInfo(code: FundCode, name = '', type: FundType 
     purchaseFeeRate: 0.015,
     redeemFeeTiers: [...DEFAULT_REDEEM_FEE_TIERS],
     convertFeeRate: 0.005,
-    settleLagDays: 1,
+    settleLagDays: defaultSettleLagDays(type),
+    confirmLagDays: defaultConfirmLagDays(type),
   };
+}
+
+/**
+ * 按基金类型推断份额确认滞后交易日数（T+N 确认）。
+ * - 普通场外基金（股票/混合/债券/指数/货币/FOF 之外）：T+1 确认；
+ * - QDII：海外结算链路长，T+2 确认；
+ * - FOF：需等子基金确认，T+2 确认；
+ * 无类型信息时由调用方退化到兜底 T+1。
+ */
+export function defaultConfirmLagDays(type: FundType): number {
+  switch (type) {
+    case 'QDII':
+      return 2;
+    case 'FOF':
+      return 2;
+    default:
+      return 1;
+  }
+}
+
+/** 按基金类型推断赎回资金到账滞后交易日数（T+N 到账）。QDII/FOF 更久。 */
+export function defaultSettleLagDays(type: FundType): number {
+  switch (type) {
+    case 'QDII':
+      return 3;
+    case 'FOF':
+      return 2;
+    case 'MONEY':
+      return 1;
+    default:
+      return 1;
+  }
 }

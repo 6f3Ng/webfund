@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import type { Valuation, ValuationSourceId } from '@fund/core';
 import { createAggregator } from '@/api/providers';
 import { fetchHistory } from '@/api/funds';
+import { mapRequests } from '@/services/requestMode';
+import { prefetchFundInfo, getCachedFundName } from '@/services/fundInfoService';
 import { getTradingCalendar } from '@/services/calendarService';
 import { useSettingsStore } from './settingsStore';
 
@@ -68,6 +70,8 @@ export interface DisplayQuote {
 interface ValuationState {
   /** fundCode -> DisplayQuote（已按交易时段规则归一） */
   quotes: Record<string, DisplayQuote>;
+  /** fundCode -> 基金名称（随行情刷新一并解析，与 history 同批 per-fund 拉取） */
+  names: Record<string, string>;
   /** 当前展示的是估值还是实际净值 */
   estimating: boolean;
   loading: boolean;
@@ -131,6 +135,7 @@ function isPostClose(now: Date): boolean {
 
 export const useValuationStore = create<ValuationState>((set, get) => ({
   quotes: {},
+  names: {},
   estimating: false,
   loading: false,
   lastUpdated: null,
@@ -156,27 +161,38 @@ export const useValuationStore = create<ValuationState>((set, get) => ({
         error: e instanceof Error ? e.message : '净值获取失败',
       });
 
+      // 每只基金的「名称（/api/fund-info）+ 净值（/api/history）」成对并行；
+      // 不同基金之间按设置顺序/并发（顺序模式逐只串行，规避第三方接口 429 限流）。
+      // 盘中分支无需 history（直接用估值），名称单独成对预取。
+      const namePart = (code: string) => prefetchFundInfo(code);
+
       if (!windowOpen) {
         // 估值窗口外（非交易日 / 节假日 / 9:15 前）：展示已公布的实际净值
-        const results = await Promise.all(
-          codes.map((code) => fetchActualQuote(code, src).catch((e) => actualFallback(code, e))),
-        );
+        const results = await mapRequests(codes, async (code) => {
+          const [quote] = await Promise.all([
+            fetchActualQuote(code, src).catch((e) => actualFallback(code, e)),
+            namePart(code),
+          ]);
+          return quote;
+        });
         for (const q of results) map[q.fundCode] = q;
       } else if (!isPostClose(now)) {
         // 集合竞价 + 盘中（9:15-15:00，含午休）：今日净值不可能已公布 → 直接用估值
+        // 估值为批量接口（一次取全部）；名称按设置顺序/并发成对预取
         const vals = await aggregator.fetchFrom(src, codes);
         for (const v of vals) map[v.fundCode] = fromValuation(v);
+        await mapRequests(codes, (code) => namePart(code));
       } else {
         // 收盘后：估值持续展示，直到当日净值公布；逐基金判断（历史最新日 === 今日 → 已公布，用实际）
         const today = todayStr(now);
-        const [vals, actuals] = await Promise.all([
-          aggregator.fetchFrom(src, codes).catch(() => []),
-          Promise.all(
-            codes.map((code) =>
-              fetchActualQuote(code, src).catch((e) => actualFallback(code, e)),
-            ),
-          ),
-        ]);
+        const vals = await aggregator.fetchFrom(src, codes).catch(() => []);
+        const actuals = await mapRequests(codes, async (code) => {
+          const [quote] = await Promise.all([
+            fetchActualQuote(code, src).catch((e) => actualFallback(code, e)),
+            namePart(code),
+          ]);
+          return quote;
+        });
         const valMap = new Map(vals.map((v) => [v.fundCode, v]));
         for (const code of codes) {
           const actual = actuals.find((a) => a.fundCode === code);
@@ -191,9 +207,22 @@ export const useValuationStore = create<ValuationState>((set, get) => ({
         }
       }
 
+      // 汇总本批解析到的基金名称
+      const names = { ...get().names };
+      for (const code of codes) {
+        const nm = getCachedFundName(code);
+        if (nm) names[code] = nm;
+      }
+
       // 全局标志：是否仍有估值在展示（驱动列标题与状态标签）
       const estimating = codes.some((c) => map[c]?.isEstimate);
-      set({ quotes: map, estimating, loading: false, lastUpdated: new Date().toISOString() });
+      set({
+        quotes: map,
+        names,
+        estimating,
+        loading: false,
+        lastUpdated: new Date().toISOString(),
+      });
     } catch (e) {
       set({ loading: false, error: e instanceof Error ? e.message : '行情获取失败' });
     }
@@ -203,5 +232,5 @@ export const useValuationStore = create<ValuationState>((set, get) => ({
     return aggregator.fetchCompare(sources, codes);
   },
 
-  clear: () => set({ quotes: {}, lastUpdated: null }),
+  clear: () => set({ quotes: {}, names: {}, lastUpdated: null }),
 }));

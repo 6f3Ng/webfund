@@ -25,8 +25,13 @@ export interface Order {
   targetFundCode?: FundCode;
   /** 申报时间（ISO 字符串，含时分） */
   submitAt: string;
-  /** 计算出的确认日 YYYY-MM-DD */
+  /** 成交净值日（T）YYYY-MM-DD：取该日收盘净值定价，也是撤单截止（该日 15:00）的依据 */
   confirmDate: string;
+  /**
+   * 份额确认日（T+N）YYYY-MM-DD：份额实际确认/到账日，订单在此日之前保持「待确认」。
+   * 普通场外基金 T+1；QDII/港基/FOF 等更久（由基金类型推断，无信息时兜底 T+1）。
+   */
+  shareConfirmDate: string;
   /** 买入金额（BUY/CONVERT 源金额可空） */
   amount?: number;
   /** 卖出/转换份额 */
@@ -70,6 +75,16 @@ export interface Position {
 export interface PortfolioSettings {
   /** 默认估值数据源 */
   defaultValuationSource?: string;
+  /**
+   * 该持仓集合配置的策略集 id 列表（引用 StrategySet 实体）。
+   * 手动执行策略时仅作用于本集合的持仓与现金，集合之间互不影响。
+   */
+  strategySetIds?: string[];
+  /**
+   * 已建立底仓的「底仓策略」id 列表。底仓策略为一次性建仓，
+   * 记录后续手动执行时跳过（避免重复买入）。
+   */
+  executedBaseStrategyIds?: string[];
 }
 
 /** 在途资金（卖出/转换后 T+N 到账的现金） */

@@ -1,5 +1,6 @@
 import type { BacktestInput, BacktestResult, NavPoint, Strategy } from '@fund/core';
 import { fetchHistory } from '@/api/funds';
+import { mapRequests } from '@/services/requestMode';
 import type { BacktestRequest, BacktestResponse } from '@/workers/backtest.worker';
 
 let worker: Worker | null = null;
@@ -23,18 +24,16 @@ function getWorker(): Worker {
   return worker;
 }
 
-/** 拉取所有标的基金的历史净值 */
+/** 拉取所有标的基金的历史净值（按设置顺序/并发调用，规避限流） */
 export async function loadNavData(
   fundCodes: string[],
   start: string,
   end: string,
 ): Promise<Record<string, NavPoint[]>> {
-  const entries = await Promise.all(
-    fundCodes.map(async (code) => {
-      const { points } = await fetchHistory(code, start, end);
-      return [code, points as NavPoint[]] as const;
-    }),
-  );
+  const entries = await mapRequests(fundCodes, async (code) => {
+    const { points } = await fetchHistory(code, start, end);
+    return [code, points as NavPoint[]] as const;
+  });
   return Object.fromEntries(entries);
 }
 

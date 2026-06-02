@@ -178,7 +178,7 @@ export function PortfoliosPage() {
         </Space>
       }
     >
-      <Table rowKey="id" dataSource={portfolios} columns={columns} pagination={false} />
+      <Table rowKey="id" dataSource={portfolios} columns={columns} pagination={false} scroll={{ x: 'max-content' }} />
 
       <Modal
         title="新建持仓集合"
@@ -187,6 +187,7 @@ export function PortfoliosPage() {
         onCancel={() => setCreateOpen(false)}
         destroyOnHidden
         width={640}
+        style={{ maxWidth: '96vw' }}
       >
         <Form form={createForm} layout="vertical" preserve={false}>
           <Form.Item name="name" label="集合名称" rules={[{ required: true, message: '请输入名称' }]}>
@@ -265,6 +266,7 @@ export function PortfoliosPage() {
         onCancel={() => setEditing(null)}
         destroyOnHidden
         width={640}
+        style={{ maxWidth: '96vw' }}
       >
         <Form
           key={editing?.id ?? 'edit'}

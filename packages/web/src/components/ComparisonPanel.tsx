@@ -16,6 +16,7 @@ import {
 import type { Dayjs } from 'dayjs';
 import type { BacktestResult, StrategySet } from '@fund/core';
 import { collectFundCodes, loadNavData, runBacktestInWorker } from '@/services/backtestService';
+import { useIsMobile } from '@/hooks/useIsMobile';
 import { fmtMoney, fmtPct, pnlColor } from '@/utils/format';
 import type { ComparisonItem } from './ComparisonChart';
 
@@ -57,6 +58,7 @@ const METRIC_ROWS: MetricRow[] = [
 export function ComparisonPanel({ sets, purchaseFeeRate }: Props) {
   const { message } = App.useApp();
   const [form] = Form.useForm();
+  const isMobile = useIsMobile();
   const [running, setRunning] = useState(false);
   const [items, setItems] = useState<ComparisonItem[]>([]);
   const [initialCash, setInitialCash] = useState(100000);
@@ -154,7 +156,7 @@ export function ComparisonPanel({ sets, purchaseFeeRate }: Props) {
   return (
     <Space direction="vertical" size="middle" style={{ width: '100%' }}>
       <Card title="多策略集横向对比">
-        <Form form={form} layout="inline" style={{ rowGap: 12 }}>
+        <Form form={form} layout={isMobile ? 'vertical' : 'inline'} style={{ rowGap: 12 }}>
           <Form.Item
             name="setIds"
             label="策略集"
@@ -162,7 +164,7 @@ export function ComparisonPanel({ sets, purchaseFeeRate }: Props) {
           >
             <Select
               mode="multiple"
-              style={{ minWidth: 280 }}
+              style={{ minWidth: 280, width: isMobile ? '100%' : undefined }}
               placeholder="选择 2+ 个策略集"
               maxTagCount="responsive"
               options={sets.map((s) => ({
@@ -174,16 +176,21 @@ export function ComparisonPanel({ sets, purchaseFeeRate }: Props) {
             />
           </Form.Item>
           <Form.Item name="range" label="区间" rules={[{ required: true, message: '请选择区间' }]}>
-            <DatePicker.RangePicker />
+            <DatePicker.RangePicker style={{ width: isMobile ? '100%' : undefined }} />
           </Form.Item>
           <Form.Item name="initialCash" label="初始资金" initialValue={100000} rules={[{ required: true }]}>
-            <InputNumber min={1000} step={10000} style={{ width: 140 }} />
+            <InputNumber min={1000} step={10000} style={{ width: isMobile ? '100%' : 140 }} />
           </Form.Item>
           <Form.Item name="benchmark" label="基准标的">
-            <Select style={{ minWidth: 120 }} placeholder="默认首个标的" allowClear options={benchOptions} />
+            <Select
+              style={{ minWidth: 120, width: isMobile ? '100%' : undefined }}
+              placeholder="默认首个标的"
+              allowClear
+              options={benchOptions}
+            />
           </Form.Item>
           <Form.Item>
-            <Button type="primary" loading={running} onClick={handleRun}>
+            <Button type="primary" loading={running} onClick={handleRun} block={isMobile}>
               运行对比
             </Button>
           </Form.Item>

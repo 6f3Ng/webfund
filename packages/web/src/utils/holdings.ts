@@ -93,12 +93,18 @@ export function profitValue(r: Position, ctx: HoldingsSortContext): number {
   return sp ? sp.profit : MISSING;
 }
 
+/** 估算收益列（当日盈亏）：来源 `snap.positions`（PositionSnapshot.dayProfit） */
+export function dayProfitValue(r: Position, ctx: HoldingsSortContext): number {
+  const sp = findSnapshot(ctx.snap, r.fundCode);
+  return sp ? sp.dayProfit : MISSING;
+}
+
 /**
  * 列取值器映射：键与 HomePage 列 `key` 一致，便于按列统一取值与排序（需求 5.3）。
  * 仅含数据列；操作列不排序（需求 5.2）。
  */
 export const columnValueGetters: Record<
-  'nav' | 'growth' | 'shares' | 'availableShares' | 'costPrice' | 'cost' | 'mv' | 'profit',
+  'nav' | 'growth' | 'shares' | 'availableShares' | 'costPrice' | 'cost' | 'mv' | 'profit' | 'dayProfit',
   (r: Position, ctx: HoldingsSortContext) => number
 > = {
   nav: navValue,
@@ -109,6 +115,7 @@ export const columnValueGetters: Record<
   cost: (r) => costValue(r),
   mv: marketValueValue,
   profit: profitValue,
+  dayProfit: dayProfitValue,
 };
 
 /**

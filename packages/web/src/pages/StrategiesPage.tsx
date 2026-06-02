@@ -192,7 +192,7 @@ export function StrategiesPage() {
           {set.strategies.length === 0 ? (
             <Empty description="该策略集暂无策略" />
           ) : (
-            <Table rowKey="id" dataSource={set.strategies} columns={columns} pagination={false} size="small" />
+            <Table rowKey="id" dataSource={set.strategies} columns={columns} pagination={false} size="small" scroll={{ x: 'max-content' }} />
           )}
         </Card>
       )}

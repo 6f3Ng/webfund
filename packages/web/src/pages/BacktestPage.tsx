@@ -24,6 +24,7 @@ import { useEffect, useState } from 'react';
 import type { Dayjs } from 'dayjs';
 import { useStrategyStore } from '@/stores/strategyStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useIsMobile } from '@/hooks/useIsMobile';
 import { collectFundCodes, loadNavData, runBacktestInWorker } from '@/services/backtestService';
 import { ComparisonPanel } from '@/components/ComparisonPanel';
 import { fmtMoney, fmtPct, pnlColor } from '@/utils/format';
@@ -61,6 +62,7 @@ function SingleBacktest() {
   const { message } = App.useApp();
   const { sets, load } = useStrategyStore();
   const { settings } = useSettingsStore();
+  const isMobile = useIsMobile();
 
   const [form] = Form.useForm();
   const [running, setRunning] = useState(false);
@@ -135,26 +137,31 @@ function SingleBacktest() {
   return (
     <Space direction="vertical" size="middle" style={{ width: '100%' }}>
       <Card title="策略回测">
-        <Form form={form} layout="inline" style={{ rowGap: 12 }}>
+        <Form form={form} layout={isMobile ? 'vertical' : 'inline'} style={{ rowGap: 12 }}>
           <Form.Item name="setId" label="策略集" rules={[{ required: true, message: '请选择' }]}>
             <Select
-              style={{ minWidth: 180 }}
+              style={{ minWidth: 180, width: isMobile ? '100%' : undefined }}
               placeholder="选择策略集"
               options={sets.map((s) => ({ label: `${s.name}（${s.strategies.length}）`, value: s.id }))}
               onChange={() => form.setFieldValue('benchmark', undefined)}
             />
           </Form.Item>
           <Form.Item name="range" label="区间" rules={[{ required: true, message: '请选择区间' }]}>
-            <DatePicker.RangePicker />
+            <DatePicker.RangePicker style={{ width: isMobile ? '100%' : undefined }} />
           </Form.Item>
           <Form.Item name="initialCash" label="初始资金" initialValue={100000} rules={[{ required: true }]}>
-            <InputNumber min={1000} step={10000} style={{ width: 140 }} />
+            <InputNumber min={1000} step={10000} style={{ width: isMobile ? '100%' : 140 }} />
           </Form.Item>
           <Form.Item name="benchmark" label="基准标的">
-            <Select style={{ minWidth: 120 }} placeholder="默认首个标的" allowClear options={fundOptions} />
+            <Select
+              style={{ minWidth: 120, width: isMobile ? '100%' : undefined }}
+              placeholder="默认首个标的"
+              allowClear
+              options={fundOptions}
+            />
           </Form.Item>
           <Form.Item>
-            <Button type="primary" loading={running} onClick={handleRun}>
+            <Button type="primary" loading={running} onClick={handleRun} block={isMobile}>
               运行回测
             </Button>
           </Form.Item>
@@ -390,6 +397,7 @@ function SingleBacktest() {
                 columns={tradeColumns}
                 size="small"
                 pagination={{ pageSize: 15 }}
+                scroll={{ x: 'max-content' }}
               />
             )}
           </Card>

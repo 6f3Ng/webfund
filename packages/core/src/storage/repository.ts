@@ -25,8 +25,15 @@ export interface AppSettings {
   autoRefresh: boolean;
   /** 自动刷新间隔(秒) */
   refreshIntervalSec: number;
-  /** 默认申购费率 */
+  /** 默认申购费率（A 类基金：前端收费，外扣） */
   defaultPurchaseFeeRate: number;
+  /** C 类基金申购费率（通常为 0，改收销售服务费），默认 0 */
+  defaultPurchaseFeeRateC: number;
+  /**
+   * 多基金的 /api/history、/api/fund-info 请求是否顺序调用（一次一只）。
+   * true=顺序（默认，规避第三方接口 429 限流）；false=并发（更快，可能触发限流）。
+   */
+  sequentialRequests: boolean;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -34,6 +41,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autoRefresh: false,
   refreshIntervalSec: 60,
   defaultPurchaseFeeRate: 0.015,
+  defaultPurchaseFeeRateC: 0,
+  sequentialRequests: true,
 };
 
 /** 持仓集合仓储 */

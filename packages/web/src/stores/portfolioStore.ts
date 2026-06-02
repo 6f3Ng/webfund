@@ -12,10 +12,12 @@ import {
   type Portfolio,
   type NavProvider,
   type InitialPosition,
+  type StrategyAction,
 } from '@fund/core';
 import { storageAdapter } from '@/adapters/LocalStorageAdapter';
 import { getTradingCalendar } from '@/services/calendarService';
-import { prefetchFundInfo, fundInfoProvider } from '@/services/fundInfoService';
+import { prefetchFundInfo, fundInfoProvider, getConfirmLagDays } from '@/services/fundInfoService';
+import { mapRequests } from '@/services/requestMode';
 import { fetchHistory } from '@/api/funds';
 
 const repo = new PortfolioRepository(storageAdapter);
@@ -80,6 +82,18 @@ interface PortfolioState {
   /** 结算所有待确认订单（拉取必要净值后推进到今天） */
   settle: () => Promise<void>;
 
+  /** 配置该集合应用的策略集 id 列表 */
+  setStrategySets: (id: string, strategySetIds: string[]) => void;
+  /** 设置某底仓策略的「已建仓」标记：built=true 锁定不再买入；false 解锁可再次建仓 */
+  setBaseStrategyBuilt: (strategyId: string, built: boolean) => void;
+  /** 按预览动作执行策略（下单），返回实际下单数。
+   *  `executedBaseStrategyIds` 为本次触发的底仓策略 id，执行后记录避免重复建仓。 */
+  executeActions: (
+    actions: StrategyAction[],
+    navByCode: Record<string, number>,
+    executedBaseStrategyIds?: string[],
+  ) => Promise<number>;
+
   exportCurrent: () => string;
   importFromString: (text: string) => Portfolio;
 }
@@ -119,8 +133,11 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
     const pf = createPortfolio({ name, initialCash, positions });
     repo.save(pf);
     set({ portfolios: [...get().portfolios, pf], currentId: pf.id });
-    // 异步补全持仓基金名称（不阻塞创建）
-    for (const p of pf.positions) void prefetchFundInfo(p.fundCode);
+    // 异步补全持仓基金名称（不阻塞创建），按设置顺序/并发预取
+    void mapRequests(
+      pf.positions.map((p) => p.fundCode),
+      (code) => prefetchFundInfo(code),
+    );
     return pf;
   },
 
@@ -157,8 +174,11 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
       portfolios: get().portfolios.map((p) => (p.id === id ? rebuilt : p)),
     });
 
-    // 异步补全持仓基金名称（需求 2.5），不阻塞编辑
-    for (const p of rebuilt.positions) void prefetchFundInfo(p.fundCode);
+    // 异步补全持仓基金名称（需求 2.5），不阻塞编辑，按设置顺序/并发预取
+    void mapRequests(
+      rebuilt.positions.map((p) => p.fundCode),
+      (code) => prefetchFundInfo(code),
+    );
 
     return rebuilt;
   },
@@ -177,7 +197,9 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
     if (!pf) throw new Error('未选择持仓集合');
     await prefetchFundInfo(fundCode);
     const calendar = await getTradingCalendar();
-    submitBuy(pf, { fundCode, amount, submitAt: submitAt ?? nowIso() }, calendar);
+    submitBuy(pf, { fundCode, amount, submitAt: submitAt ?? nowIso() }, calendar, {
+      confirmLagDays: getConfirmLagDays(fundCode),
+    });
     repo.save(pf);
     set({ portfolios: [...get().portfolios] });
     await get().settle();
@@ -186,8 +208,11 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
   sell: async ({ fundCode, shares, submitAt }) => {
     const pf = get().current();
     if (!pf) throw new Error('未选择持仓集合');
+    await prefetchFundInfo(fundCode);
     const calendar = await getTradingCalendar();
-    submitSell(pf, { fundCode, shares, submitAt: submitAt ?? nowIso() }, calendar);
+    submitSell(pf, { fundCode, shares, submitAt: submitAt ?? nowIso() }, calendar, {
+      confirmLagDays: getConfirmLagDays(fundCode),
+    });
     repo.save(pf);
     set({ portfolios: [...get().portfolios] });
     await get().settle();
@@ -197,8 +222,15 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
     const pf = get().current();
     if (!pf) throw new Error('未选择持仓集合');
     await prefetchFundInfo(toFundCode);
+    await prefetchFundInfo(fromFundCode);
     const calendar = await getTradingCalendar();
-    submitConvert(pf, { fromFundCode, toFundCode, shares, submitAt: submitAt ?? nowIso() }, calendar);
+    submitConvert(
+      pf,
+      { fromFundCode, toFundCode, shares, submitAt: submitAt ?? nowIso() },
+      calendar,
+      // 转换确认以转入基金的确认期为准（如转入 QDII 更久）
+      { confirmLagDays: Math.max(getConfirmLagDays(fromFundCode), getConfirmLagDays(toFundCode)) },
+    );
     repo.save(pf);
     set({ portfolios: [...get().portfolios] });
     await get().settle();
@@ -207,7 +239,8 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
   cancel: (orderId) => {
     const pf = get().current();
     if (!pf) return;
-    cancelOrder(pf, orderId);
+    // 按场外基金运作限制校验：确认日 15:00 前可撤，已过成交确认时点则拒绝（需求 3）
+    cancelOrder(pf, orderId, { now: nowIso() });
     repo.save(pf);
     set({ portfolios: [...get().portfolios] });
   },
@@ -217,7 +250,7 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
     if (!pf || pf.pendingOrders.length === 0) return;
     const calendar = await getTradingCalendar();
 
-    // 为每个待确认订单的标的预取净值（确认日附近）
+    // 为每个待确认订单的标的预取净值（确认日附近）与基金信息（名称/类型/份额类别 → 费率）
     const codes = new Set<string>();
     for (const o of pf.pendingOrders) {
       codes.add(o.fundCode);
@@ -228,11 +261,93 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
     const earliest = pf.pendingOrders
       .map((o) => o.confirmDate)
       .sort()[0];
-    await Promise.all([...codes].map((c) => loadNavForSettlement(c, earliest, end)));
+    // 每只标的：结算净值（/api/history）与基金信息（/api/fund-info）两接口并行；
+    // 不同标的之间按设置顺序或并发执行（顺序模式规避第三方接口 429 限流）
+    await mapRequests([...codes], (c) =>
+      Promise.all([loadNavForSettlement(c, earliest, end), prefetchFundInfo(c)]),
+    );
 
     settlePortfolio(pf, { asOf: end, calendar, getNav: navProvider, getFundInfo: fundInfoProvider });
     repo.save(pf);
     set({ portfolios: [...get().portfolios] });
+  },
+
+  setStrategySets: (id, strategySetIds) => {
+    const pf = repo.get(id);
+    if (!pf) return;
+    pf.settings = { ...pf.settings, strategySetIds };
+    repo.save(pf);
+    set({ portfolios: get().portfolios.map((p) => (p.id === id ? pf : p)) });
+  },
+
+  setBaseStrategyBuilt: (strategyId, built) => {
+    const pf = get().current();
+    if (!pf) return;
+    const prev = pf.settings.executedBaseStrategyIds ?? [];
+    const has = prev.includes(strategyId);
+    if (built === has) return; // 状态未变化
+    const next = built ? [...prev, strategyId] : prev.filter((id) => id !== strategyId);
+    pf.settings = { ...pf.settings, executedBaseStrategyIds: next };
+    repo.save(pf);
+    set({ portfolios: [...get().portfolios] });
+  },
+
+  executeActions: async (actions, navByCode, executedBaseStrategyIds) => {
+    const pf = get().current();
+    if (!pf) throw new Error('未选择持仓集合');
+    if (actions.length === 0) return 0;
+    const calendar = await getTradingCalendar();
+    const submittedAt = nowIso();
+    let count = 0;
+
+    // 先卖后买（动作已按冲突策略归并排序）。卖出回款 T+N 到账，故买入仅以当前可用现金为限。
+    for (const action of actions) {
+      const nav = navByCode[action.fundCode];
+      try {
+        if (action.side === 'BUY') {
+          const amount = Math.min(action.amount ?? 0, pf.cash);
+          if (amount <= 0) continue;
+          submitBuy(pf, { fundCode: action.fundCode, amount, submitAt: submittedAt }, calendar, {
+            confirmLagDays: getConfirmLagDays(action.fundCode),
+          });
+          count++;
+        } else {
+          // 卖出份额优先级：ratio > amount(按估值换算) > shares；并以可卖份额封顶
+          const pos = pf.positions.find((p) => p.fundCode === action.fundCode);
+          if (!pos || pos.availableShares <= 0) continue;
+          let shares: number;
+          if (action.ratio !== undefined) {
+            shares = pos.shares * action.ratio;
+          } else if (action.amount !== undefined && nav && nav > 0) {
+            shares = action.amount / nav;
+          } else {
+            shares = action.shares ?? 0;
+          }
+          shares = Math.min(shares, pos.availableShares);
+          if (shares <= 0) continue;
+          submitSell(pf, { fundCode: action.fundCode, shares, submitAt: submittedAt }, calendar, {
+            confirmLagDays: getConfirmLagDays(action.fundCode),
+          });
+          count++;
+        }
+      } catch {
+        // 单笔失败（现金/份额不足等）跳过，不影响其余动作
+      }
+    }
+
+    // 记录本次已建底仓的策略 id（去重），避免后续手动执行重复建仓
+    if (count > 0 && executedBaseStrategyIds && executedBaseStrategyIds.length > 0) {
+      const prev = pf.settings.executedBaseStrategyIds ?? [];
+      pf.settings = {
+        ...pf.settings,
+        executedBaseStrategyIds: [...new Set([...prev, ...executedBaseStrategyIds])],
+      };
+    }
+
+    repo.save(pf);
+    set({ portfolios: [...get().portfolios] });
+    await get().settle();
+    return count;
   },
 
   exportCurrent: () => {
