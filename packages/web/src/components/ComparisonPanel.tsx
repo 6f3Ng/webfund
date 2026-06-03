@@ -17,6 +17,7 @@ import type { Dayjs } from 'dayjs';
 import type { BacktestResult, StrategySet } from '@fund/core';
 import { collectFundCodes, loadNavData, runBacktestInWorker } from '@/services/backtestService';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { useFundNames } from '@/hooks/useFundNames';
 import { fmtMoney, fmtPct, pnlColor } from '@/utils/format';
 import type { ComparisonItem } from './ComparisonChart';
 
@@ -62,6 +63,14 @@ export function ComparisonPanel({ sets, purchaseFeeRate }: Props) {
   const [running, setRunning] = useState(false);
   const [items, setItems] = useState<ComparisonItem[]>([]);
   const [initialCash, setInitialCash] = useState(100000);
+
+  // 名称解析（需求 4）：覆盖所有策略集涉及的标的，供基准下拉与曲线展示
+  const allCodes = [...new Set(sets.flatMap((s) => collectFundCodes(s.strategies)))];
+  const { resolve } = useFundNames(allCodes);
+  const resolveLabel = (code: string) => {
+    const nm = resolve(code);
+    return nm && nm !== code ? `${nm}（${code}）` : code;
+  };
 
   const handleRun = async () => {
     const v = await form.validateFields();
@@ -122,7 +131,7 @@ export function ComparisonPanel({ sets, purchaseFeeRate }: Props) {
         sets.filter((s) => ids.includes(s.id)).flatMap((s) => collectFundCodes(s.strategies)),
       ),
     ];
-    return codes.map((c) => ({ label: c, value: c }));
+    return codes.map((c) => ({ label: resolveLabel(c), value: c }));
   })();
 
   // 指标对比表：行=指标，列=各策略集
@@ -220,7 +229,7 @@ export function ComparisonPanel({ sets, purchaseFeeRate }: Props) {
           </Card>
           <Card title="总资产曲线对比">
             <Suspense fallback={<Spin />}>
-              <ComparisonChart items={items} initialCash={initialCash} />
+              <ComparisonChart items={items} initialCash={initialCash} resolveName={resolveLabel} />
             </Suspense>
           </Card>
         </>

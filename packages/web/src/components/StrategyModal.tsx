@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { Modal, Form, Input, InputNumber, Select, Button, Space, Switch } from 'antd';
-import type { Strategy, StrategyParams, StrategyTemplate } from '@fund/core';
+import type { Strategy, StrategyParams, StrategyTemplate, DcaPeriod } from '@fund/core';
 
 interface StrategyModalProps {
   open: boolean;
@@ -35,7 +35,7 @@ function buildParams(
     case 'DCA':
       return {
         type: 'DCA',
-        period: v.period as 'WEEKLY' | 'MONTHLY',
+        period: v.period as DcaPeriod,
         dayOfPeriod: Number(v.dayOfPeriod),
         amount: Number(v.amount),
       };
@@ -44,7 +44,7 @@ function buildParams(
     case 'SMART_DCA_CHANGE':
       return {
         type: 'SMART_DCA_CHANGE',
-        period: v.period as 'WEEKLY' | 'MONTHLY',
+        period: v.period as DcaPeriod,
         dayOfPeriod: Number(v.dayOfPeriod),
         baseAmount: Number(v.baseAmount),
         referenceWindow: Number(v.referenceWindow),
@@ -56,7 +56,7 @@ function buildParams(
     case 'SMART_DCA_MA':
       return {
         type: 'SMART_DCA_MA',
-        period: v.period as 'WEEKLY' | 'MONTHLY',
+        period: v.period as DcaPeriod,
         dayOfPeriod: Number(v.dayOfPeriod),
         baseAmount: Number(v.baseAmount),
         maWindow: Number(v.maWindow),
@@ -68,7 +68,7 @@ function buildParams(
     case 'VALUE_AVERAGING':
       return {
         type: 'VALUE_AVERAGING',
-        period: v.period as 'WEEKLY' | 'MONTHLY',
+        period: v.period as DcaPeriod,
         dayOfPeriod: Number(v.dayOfPeriod),
         targetStep: Number(v.targetStep),
         allowSell: v.allowSell === true,
@@ -276,6 +276,37 @@ function defaultFormForTemplate(type: StrategyTemplate): Record<string, number |
   }
 }
 
+/** 定投周期选项（每日 / 每周 / 每月） */
+const PERIOD_OPTIONS = [
+  { label: '每日', value: 'DAILY' },
+  { label: '每周', value: 'WEEKLY' },
+  { label: '每月', value: 'MONTHLY' },
+];
+
+/**
+ * 定投周期 + 执行日字段（DCA / 智能定投 / 目标市值法共用）。
+ * 选「每日」时执行日无意义，隐藏 dayOfPeriod 输入（每个交易日定投一次）。
+ */
+function PeriodFields({ form }: { form: ReturnType<typeof Form.useForm>[0] }) {
+  const period = Form.useWatch('period', form) as DcaPeriod | undefined;
+  return (
+    <>
+      <Form.Item name="period" label="定投周期" rules={[{ required: true }]}>
+        <Select options={PERIOD_OPTIONS} />
+      </Form.Item>
+      {period !== 'DAILY' && (
+        <Form.Item
+          name="dayOfPeriod"
+          label="执行日（每周1-7 / 每月1-28）"
+          rules={[{ required: true, type: 'number', min: 1, max: 28 }]}
+        >
+          <InputNumber style={{ width: '100%' }} min={1} max={28} />
+        </Form.Item>
+      )}
+    </>
+  );
+}
+
 /**
  * 外层仅负责 Modal 开关；表单内容在打开时才挂载，且用随每次打开递增的 key 强制重建，
  * 保证每次打开都是全新的 Form 实例，避免上一次编辑的值残留（新增时被回填的 bug）。
@@ -357,21 +388,7 @@ function StrategyForm({ editing, onSubmit, onClose }: StrategyModalProps) {
 
       {templateType === 'DCA' && (
         <>
-          <Form.Item name="period" label="定投周期" rules={[{ required: true }]}>
-            <Select
-              options={[
-                { label: '每周', value: 'WEEKLY' },
-                { label: '每月', value: 'MONTHLY' },
-              ]}
-            />
-          </Form.Item>
-          <Form.Item
-            name="dayOfPeriod"
-            label="执行日（每周1-7 / 每月1-28）"
-            rules={[{ required: true, type: 'number', min: 1, max: 28 }]}
-          >
-            <InputNumber style={{ width: '100%' }} min={1} max={28} />
-          </Form.Item>
+          <PeriodFields form={form} />
           <Form.Item name="amount" label="每次定投金额（元）" rules={[{ required: true, type: 'number', min: 1 }]}>
             <InputNumber style={{ width: '100%' }} min={1} step={500} />
           </Form.Item>
@@ -391,21 +408,7 @@ function StrategyForm({ editing, onSubmit, onClose }: StrategyModalProps) {
 
       {(templateType === 'SMART_DCA_CHANGE' || templateType === 'SMART_DCA_MA') && (
         <>
-          <Form.Item name="period" label="定投周期" rules={[{ required: true }]}>
-            <Select
-              options={[
-                { label: '每周', value: 'WEEKLY' },
-                { label: '每月', value: 'MONTHLY' },
-              ]}
-            />
-          </Form.Item>
-          <Form.Item
-            name="dayOfPeriod"
-            label="执行日（每周1-7 / 每月1-28）"
-            rules={[{ required: true, type: 'number', min: 1, max: 28 }]}
-          >
-            <InputNumber style={{ width: '100%' }} min={1} max={28} />
-          </Form.Item>
+          <PeriodFields form={form} />
           <Form.Item name="baseAmount" label="基准定投金额（元）" rules={[{ required: true, type: 'number', min: 1 }]}>
             <InputNumber style={{ width: '100%' }} min={1} step={500} />
           </Form.Item>
@@ -455,21 +458,7 @@ function StrategyForm({ editing, onSubmit, onClose }: StrategyModalProps) {
 
       {templateType === 'VALUE_AVERAGING' && (
         <>
-          <Form.Item name="period" label="定投周期" rules={[{ required: true }]}>
-            <Select
-              options={[
-                { label: '每周', value: 'WEEKLY' },
-                { label: '每月', value: 'MONTHLY' },
-              ]}
-            />
-          </Form.Item>
-          <Form.Item
-            name="dayOfPeriod"
-            label="执行日（每周1-7 / 每月1-28）"
-            rules={[{ required: true, type: 'number', min: 1, max: 28 }]}
-          >
-            <InputNumber style={{ width: '100%' }} min={1} max={28} />
-          </Form.Item>
+          <PeriodFields form={form} />
           <Form.Item
             name="targetStep"
             label="每期目标市值增长（元）"

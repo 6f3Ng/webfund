@@ -11,6 +11,8 @@ import { usePortfolioStore } from '@/stores/portfolioStore';
 import { useValuationStore } from '@/stores/valuationStore';
 import { previewPortfolioExecution, describeAction } from '@/services/strategyExecutionService';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { useFundNames } from '@/hooks/useFundNames';
+import { FundCell } from '@/components/FundLabel';
 import { fmtMoney } from '@/utils/format';
 
 const TEMPLATE_LABEL: Record<string, string> = {
@@ -50,6 +52,7 @@ export function StrategyExecModal({
   const { quotes } = useValuationStore();
   const { current, executeActions, setBaseStrategyBuilt } = usePortfolioStore();
   const isMobile = useIsMobile();
+  const { resolve } = useFundNames(strategies.map((s) => s.fundCode));
 
   const [loading, setLoading] = useState(false);
   const [executing, setExecuting] = useState(false);
@@ -115,7 +118,14 @@ export function StrategyExecModal({
       key: 'type',
       render: (t: string) => <Tag>{TEMPLATE_LABEL[t] ?? t}</Tag>,
     },
-    { title: '标的', dataIndex: 'fundCode', key: 'fundCode' },
+    {
+      title: '标的',
+      dataIndex: 'fundCode',
+      key: 'fundCode',
+      render: (_: unknown, r: LivePreviewResult['diagnostics'][number]) => (
+        <FundCell code={r.fundCode} name={resolve(r.fundCode)} />
+      ),
+    },
     {
       title: '求值结果',
       key: 'result',
@@ -161,7 +171,12 @@ export function StrategyExecModal({
       key: 'side',
       render: (s: string) => <Tag color={s === 'BUY' ? 'red' : 'green'}>{s === 'BUY' ? '买入' : '卖出'}</Tag>,
     },
-    { title: '标的', dataIndex: 'fundCode', key: 'fundCode' },
+    {
+      title: '标的',
+      dataIndex: 'fundCode',
+      key: 'fundCode',
+      render: (_: unknown, a: StrategyAction) => <FundCell code={a.fundCode} name={resolve(a.fundCode)} />,
+    },
     {
       title: '执行内容',
       key: 'detail',

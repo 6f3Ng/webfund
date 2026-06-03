@@ -17,6 +17,14 @@ import type {
 import { dayOfWeek } from '../utils/date';
 import { clamp } from '../utils/decimal';
 import type { DayContext, StrategyAction, StrategyRuntimeState } from './types';
+import type { DcaPeriod } from '../domain';
+
+/**
+ * 周期标签：用于触发原因文案。
+ */
+function periodLabel(period: DcaPeriod): string {
+  return period === 'DAILY' ? '每日' : period === 'WEEKLY' ? '每周' : '每月';
+}
 
 /**
  * 单条策略求值：给定当日上下文与运行时状态，返回触发的动作（可能为空）。
@@ -66,14 +74,18 @@ export function evaluateStrategy(
  */
 function periodDue(
   date: string,
-  period: 'WEEKLY' | 'MONTHLY',
+  period: DcaPeriod,
   dayOfPeriod: number,
   state: StrategyRuntimeState,
 ): boolean {
   const [y, m, d] = date.split('-').map(Number);
   let due = false;
   let key = '';
-  if (period === 'WEEKLY') {
+  if (period === 'DAILY') {
+    // 每个交易日定投一次：以日期本身为周期键，保证每个交易日最多一次
+    key = date;
+    due = true;
+  } else if (period === 'WEEKLY') {
     const dow = dayOfWeek(date); // 0=周日
     const targetDow = dayOfPeriod === 7 ? 0 : dayOfPeriod;
     key = `${y}-W${isoWeek(date)}`;
@@ -117,7 +129,7 @@ function evalDca(
       fundCode: s.fundCode,
       side: 'BUY',
       amount: p.amount,
-      reason: `定投（${p.period === 'WEEKLY' ? '每周' : '每月'}）`,
+      reason: `定投（${periodLabel(p.period)}）`,
     },
   ];
 }

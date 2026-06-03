@@ -6,6 +6,7 @@ import { PortfoliosPage } from '@/pages/PortfoliosPage';
 import { SettingsPage } from '@/pages/SettingsPage';
 import { StrategiesPage } from '@/pages/StrategiesPage';
 import { BacktestPage } from '@/pages/BacktestPage';
+import { FundPickerPage } from '@/pages/FundPickerPage';
 
 const routes: RouteObject[] = [
   {
@@ -14,6 +15,7 @@ const routes: RouteObject[] = [
     children: [
       { index: true, element: <HomePage /> },
       { path: 'portfolios', element: <PortfoliosPage /> },
+      { path: 'fund-picker', element: <FundPickerPage /> },
       { path: 'strategies', element: <StrategiesPage /> },
       { path: 'backtest', element: <BacktestPage /> },
       { path: 'settings', element: <SettingsPage /> },

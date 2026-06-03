@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Modal, Form, Input, InputNumber, Select, App } from 'antd';
 import { usePortfolioStore } from '@/stores/portfolioStore';
+import { useFundNames } from '@/hooks/useFundNames';
 import type { Position } from '@fund/core';
 
 export type TradeType = 'BUY' | 'SELL' | 'CONVERT';
@@ -21,6 +22,7 @@ export function TradeModal({ open, type, positions, presetFundCode, onClose }: T
   const [antdForm] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
   const { buy, sell, convert } = usePortfolioStore();
+  const { resolve } = useFundNames(positions.map((p) => p.fundCode));
 
   const handleOk = async () => {
     try {
@@ -49,10 +51,14 @@ export function TradeModal({ open, type, positions, presetFundCode, onClose }: T
 
   const positionOptions = positions
     .filter((p) => p.availableShares > 0)
-    .map((p) => ({
-      label: `${p.fundCode}（可卖 ${p.availableShares.toFixed(2)} 份）`,
-      value: p.fundCode,
-    }));
+    .map((p) => {
+      const nm = resolve(p.fundCode);
+      const label = nm && nm !== p.fundCode ? `${nm}（${p.fundCode}）` : p.fundCode;
+      return {
+        label: `${label}｜可卖 ${p.availableShares.toFixed(2)} 份`,
+        value: p.fundCode,
+      };
+    });
 
   return (
     <Modal

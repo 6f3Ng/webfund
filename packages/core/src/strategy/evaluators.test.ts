@@ -58,6 +58,23 @@ describe('DCA 定投', () => {
     const actions = evaluateStrategy({ ...s, enabled: false }, ctx({ date: '2024-03-05' }), state);
     expect(actions).toHaveLength(0);
   });
+
+  it('每日定投：每个交易日触发一次，同日不重复', () => {
+    const daily: Strategy = {
+      ...s,
+      params: { type: 'DCA', period: 'DAILY', dayOfPeriod: 1, amount: 500 },
+    };
+    const state: StrategyRuntimeState = {};
+    const day1 = evaluateStrategy(daily, ctx({ date: '2024-03-05' }), state);
+    expect(day1).toHaveLength(1);
+    expect(day1[0].amount).toBe(500);
+    // 同一日再次求值不重复
+    const sameDay = evaluateStrategy(daily, ctx({ date: '2024-03-05' }), state);
+    expect(sameDay).toHaveLength(0);
+    // 次个交易日再次触发
+    const day2 = evaluateStrategy(daily, ctx({ date: '2024-03-06' }), state);
+    expect(day2).toHaveLength(1);
+  });
 });
 
 describe('THRESHOLD_BUY 阈值买入', () => {

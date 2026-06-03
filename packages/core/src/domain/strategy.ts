@@ -16,12 +16,20 @@ export type StrategyTemplate =
   | 'STOP_LOSS' // 止损
   | 'GRID'; // 网格
 
+/**
+ * 定投周期：每日 / 每周 / 每月。
+ * - DAILY：每个交易日定投一次（dayOfPeriod 无意义，可忽略）；
+ * - WEEKLY：每周某日（dayOfPeriod=1~7，周一~周日）；
+ * - MONTHLY：每月某日（dayOfPeriod=1~28）。
+ */
+export type DcaPeriod = 'DAILY' | 'WEEKLY' | 'MONTHLY';
+
 /** 定投参数 */
 export interface DcaParams {
   type: 'DCA';
   /** 周期 */
-  period: 'WEEKLY' | 'MONTHLY';
-  /** 周期内执行日：WEEKLY=1~7(周一~周日)，MONTHLY=1~28 */
+  period: DcaPeriod;
+  /** 周期内执行日：DAILY 忽略，WEEKLY=1~7(周一~周日)，MONTHLY=1~28 */
   dayOfPeriod: number;
   /** 每次定投金额 */
   amount: number;
@@ -46,7 +54,7 @@ export interface BasePositionParams {
  */
 export interface ValueAveragingParams {
   type: 'VALUE_AVERAGING';
-  period: 'WEEKLY' | 'MONTHLY';
+  period: DcaPeriod;
   dayOfPeriod: number;
   /** 每期目标市值增长额度 */
   targetStep: number;
@@ -64,7 +72,7 @@ export interface ValueAveragingParams {
  */
 export interface SmartDcaChangeParams {
   type: 'SMART_DCA_CHANGE';
-  period: 'WEEKLY' | 'MONTHLY';
+  period: DcaPeriod;
   dayOfPeriod: number;
   /** 基准定投金额 */
   baseAmount: number;
@@ -87,7 +95,7 @@ export interface SmartDcaChangeParams {
  */
 export interface SmartDcaMaParams {
   type: 'SMART_DCA_MA';
-  period: 'WEEKLY' | 'MONTHLY';
+  period: DcaPeriod;
   dayOfPeriod: number;
   baseAmount: number;
   /** 均线窗口（交易日，如 250≈年线） */

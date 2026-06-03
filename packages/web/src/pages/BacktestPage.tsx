@@ -20,13 +20,15 @@ import {
   Tooltip,
   Tabs,
 } from 'antd';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Dayjs } from 'dayjs';
 import { useStrategyStore } from '@/stores/strategyStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { collectFundCodes, loadNavData, runBacktestInWorker } from '@/services/backtestService';
 import { ComparisonPanel } from '@/components/ComparisonPanel';
+import { FundCell } from '@/components/FundLabel';
+import { useFundNames } from '@/hooks/useFundNames';
 import { fmtMoney, fmtPct, pnlColor } from '@/utils/format';
 import type { BacktestResult, BacktestTrade } from '@fund/core';
 
@@ -73,6 +75,17 @@ function SingleBacktest() {
     load();
   }, [load]);
 
+  // 名称解析（需求 4）：覆盖所有策略集涉及的标的代码
+  const allCodes = useMemo(
+    () => [...new Set(sets.flatMap((s) => collectFundCodes(s.strategies)))],
+    [sets],
+  );
+  const { resolve } = useFundNames(allCodes);
+  const resolveLabel = (code: string) => {
+    const nm = resolve(code);
+    return nm && nm !== code ? `${nm}（${code}）` : code;
+  };
+
   const handleRun = async () => {
     const v = await form.validateFields();
     const set = sets.find((s) => s.id === v.setId);
@@ -116,7 +129,10 @@ function SingleBacktest() {
 
   const fundOptions = (() => {
     const set = sets.find((s) => s.id === form.getFieldValue('setId'));
-    return collectFundCodes(set?.strategies ?? []).map((c) => ({ label: c, value: c }));
+    return collectFundCodes(set?.strategies ?? []).map((c) => ({
+      label: resolveLabel(c),
+      value: c,
+    }));
   })();
 
   const tradeColumns = [
@@ -127,7 +143,12 @@ function SingleBacktest() {
       key: 'side',
       render: (s: string) => <Tag color={s === 'BUY' ? 'red' : 'green'}>{s === 'BUY' ? '买入' : '卖出'}</Tag>,
     },
-    { title: '基金', dataIndex: 'fundCode', key: 'fundCode' },
+    {
+      title: '基金',
+      dataIndex: 'fundCode',
+      key: 'fundCode',
+      render: (_: unknown, r: BacktestTrade) => <FundCell code={r.fundCode} name={resolve(r.fundCode)} />,
+    },
     { title: '净值', dataIndex: 'nav', key: 'nav', render: (n: number) => n.toFixed(4) },
     { title: '金额', dataIndex: 'amount', key: 'amount', render: fmtMoney },
     { title: '份额', dataIndex: 'shares', key: 'shares', render: (s: number) => s.toFixed(2) },
@@ -366,7 +387,7 @@ function SingleBacktest() {
                 style={{ marginTop: 12 }}
                 type="info"
                 showIcon
-                message={`基准（${result.benchmark.fundCode} 买入持有）：总收益 ${fmtPct(
+                message={`基准（${resolveLabel(result.benchmark.fundCode)} 买入持有）：总收益 ${fmtPct(
                   result.benchmark.totalReturn * 100,
                 )} ｜ 年化 ${fmtPct(result.benchmark.annualizedReturn * 100)} ｜ 最大回撤 ${fmtPct(
                   result.benchmark.maxDrawdown * 100,

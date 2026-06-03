@@ -16,6 +16,8 @@ import {
 } from 'antd';
 import { useStrategyStore } from '@/stores/strategyStore';
 import { StrategyModal } from '@/components/StrategyModal';
+import { FundCell } from '@/components/FundLabel';
+import { useFundNames } from '@/hooks/useFundNames';
 import type { Strategy } from '@fund/core';
 
 const TEMPLATE_LABEL: Record<string, string> = {
@@ -36,17 +38,21 @@ const TEMPLATE_LABEL: Record<string, string> = {
 
 function describeParams(s: Strategy): string {
   const p = s.params;
+  const periodText = (period: 'DAILY' | 'WEEKLY' | 'MONTHLY') =>
+    period === 'DAILY' ? '每日' : period === 'WEEKLY' ? '每周' : '每月';
   switch (p.type) {
     case 'DCA':
-      return `${p.period === 'WEEKLY' ? '每周' : '每月'} ${p.dayOfPeriod} 投 ¥${p.amount}`;
+      return p.period === 'DAILY'
+        ? `每日 投 ¥${p.amount}`
+        : `${periodText(p.period)} ${p.dayOfPeriod} 投 ¥${p.amount}`;
     case 'BASE_POSITION':
       return `首日一次性建仓 ¥${p.amount}`;
     case 'SMART_DCA_CHANGE':
-      return `${p.period === 'WEEKLY' ? '每周' : '每月'} ${p.dayOfPeriod} 基准¥${p.baseAmount}，近${p.referenceWindow}日每${(p.stepPct * 100).toFixed(0)}%调${(p.adjustPct * 100).toFixed(0)}%（×${p.minFactor}~${p.maxFactor}）`;
+      return `${periodText(p.period)} ${p.period === 'DAILY' ? '' : p.dayOfPeriod} 基准¥${p.baseAmount}，近${p.referenceWindow}日每${(p.stepPct * 100).toFixed(0)}%调${(p.adjustPct * 100).toFixed(0)}%（×${p.minFactor}~${p.maxFactor}）`;
     case 'SMART_DCA_MA':
-      return `${p.period === 'WEEKLY' ? '每周' : '每月'} ${p.dayOfPeriod} 基准¥${p.baseAmount}，${p.maWindow}日均线每${(p.stepPct * 100).toFixed(0)}%调${(p.adjustPct * 100).toFixed(0)}%（×${p.minFactor}~${p.maxFactor}）`;
+      return `${periodText(p.period)} ${p.period === 'DAILY' ? '' : p.dayOfPeriod} 基准¥${p.baseAmount}，${p.maWindow}日均线每${(p.stepPct * 100).toFixed(0)}%调${(p.adjustPct * 100).toFixed(0)}%（×${p.minFactor}~${p.maxFactor}）`;
     case 'VALUE_AVERAGING':
-      return `${p.period === 'WEEKLY' ? '每周' : '每月'} ${p.dayOfPeriod} 每期目标+¥${p.targetStep}${p.allowSell ? '，超额卖出' : '，只买不卖'}${p.maxBuy ? `，单期≤¥${p.maxBuy}` : ''}`;
+      return `${periodText(p.period)} ${p.period === 'DAILY' ? '' : p.dayOfPeriod} 每期目标+¥${p.targetStep}${p.allowSell ? '，超额卖出' : '，只买不卖'}${p.maxBuy ? `，单期≤¥${p.maxBuy}` : ''}`;
     case 'THRESHOLD_BUY':
       return `近${p.window}日跌${(p.dropPct * 100).toFixed(1)}% 买 ¥${p.amount}`;
     case 'SMART_THRESHOLD_BUY_CHANGE':
@@ -99,6 +105,7 @@ export function StrategiesPage() {
   }, [load]);
 
   const set = current();
+  const { resolve } = useFundNames(set?.strategies.map((s) => s.fundCode) ?? []);
 
   const columns = [
     { title: '名称', dataIndex: 'name', key: 'name' },
@@ -108,7 +115,12 @@ export function StrategiesPage() {
       key: 'templateType',
       render: (t: string) => <Tag>{TEMPLATE_LABEL[t]}</Tag>,
     },
-    { title: '标的', dataIndex: 'fundCode', key: 'fundCode' },
+    {
+      title: '标的',
+      dataIndex: 'fundCode',
+      key: 'fundCode',
+      render: (_: unknown, r: Strategy) => <FundCell code={r.fundCode} name={resolve(r.fundCode)} />,
+    },
     { title: '参数', key: 'params', render: (_: unknown, r: Strategy) => describeParams(r) },
     {
       title: '启用',

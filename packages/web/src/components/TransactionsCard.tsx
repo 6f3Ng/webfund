@@ -1,6 +1,8 @@
 import { Card, Table, Tag, Empty } from 'antd';
 import type { Portfolio, Transaction } from '@fund/core';
 import { fmtMoney } from '@/utils/format';
+import { FundCell } from '@/components/FundLabel';
+import { useFundNames } from '@/hooks/useFundNames';
 
 const TYPE_LABEL: Record<string, string> = {
   BUY: '买入',
@@ -10,14 +12,25 @@ const TYPE_LABEL: Record<string, string> = {
 };
 
 export function TransactionsCard({ portfolio }: { portfolio: Portfolio }) {
+  const { resolve } = useFundNames(
+    portfolio.transactions.flatMap((t) =>
+      t.targetFundCode ? [t.fundCode, t.targetFundCode] : [t.fundCode],
+    ),
+  );
   const columns = [
     { title: '日期', dataIndex: 'date', key: 'date' },
     { title: '类型', dataIndex: 'type', key: 'type', render: (t: string) => <Tag>{TYPE_LABEL[t]}</Tag> },
     {
       title: '基金',
       key: 'fund',
-      render: (_: unknown, r: Transaction) =>
-        r.targetFundCode ? `${r.fundCode}→${r.targetFundCode}` : r.fundCode,
+      render: (_: unknown, r: Transaction) => (
+        <FundCell
+          code={r.fundCode}
+          name={resolve(r.fundCode)}
+          targetCode={r.targetFundCode}
+          targetName={r.targetFundCode ? resolve(r.targetFundCode) : undefined}
+        />
+      ),
     },
     { title: '净值', dataIndex: 'nav', key: 'nav', render: (n: number) => n.toFixed(4) },
     { title: '金额', dataIndex: 'amount', key: 'amount', render: fmtMoney },

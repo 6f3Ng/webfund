@@ -14,7 +14,9 @@ import {
   App,
   Alert,
   Typography,
+  DatePicker,
 } from 'antd';
+import type { Dayjs } from 'dayjs';
 import { ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons';import {
   snapshotPortfolio,
   type PriceMap,
@@ -24,9 +26,10 @@ import { ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons';import {
   type ValuationSourceId,
 } from '@fund/core';
 import { usePortfolioStore } from '@/stores/portfolioStore';
-import { useValuationStore } from '@/stores/valuationStore';
+import { useValuationStore, type DisplayQuote } from '@/stores/valuationStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useStrategyStore } from '@/stores/strategyStore';
+import { fetchHistoricalQuotes } from '@/services/holdingsDateService';
 import { TradeModal, type TradeType } from '@/components/TradeModal';
 import { StrategyExecModal } from '@/components/StrategyExecModal';
 import { HoldingsColumnSettings } from '@/components/HoldingsColumnSettings';
@@ -66,6 +69,12 @@ export function HomePage() {
   });
   const [execOpen, setExecOpen] = useState(false);
 
+  // 持仓明细日期查看（需求 2）：选中某日期 → 展示该日的净值/当日涨跌/当日收益；为空=实时
+  const [viewDate, setViewDate] = useState<Dayjs | null>(null);
+  const [dateQuotes, setDateQuotes] = useState<Record<string, DisplayQuote> | null>(null);
+  const [dateNames, setDateNames] = useState<Record<string, string>>({});
+  const [dateLoading, setDateLoading] = useState(false);
+
   // 持仓明细列偏好（顺序 + 显隐），持久化到 localStorage
   const [columnPrefs, setColumnPrefs] = useState<HoldingsColumnPrefs>(() => loadColumnPrefs());
   const updateColumnPrefs = (next: HoldingsColumnPrefs) => {
@@ -89,16 +98,48 @@ export function HomePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentId, codes.length]);
 
+  // 选定日期时拉取该日历史行情（净值/当日涨跌/当日收益）；清空日期回到实时
+  const viewDateStr = viewDate ? viewDate.format('YYYY-MM-DD') : null;
+  useEffect(() => {
+    if (!viewDateStr || codes.length === 0) {
+      setDateQuotes(null);
+      return;
+    }
+    let alive = true;
+    setDateLoading(true);
+    fetchHistoricalQuotes(codes, viewDateStr, settings.defaultValuationSource as ValuationSourceId)
+      .then((res) => {
+        if (!alive) return;
+        setDateQuotes(res.quotes);
+        setDateNames(res.names);
+      })
+      .catch(() => {
+        if (alive) setDateQuotes({});
+      })
+      .finally(() => {
+        if (alive) setDateLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [viewDateStr, codes.join(',')]);
+
+  // 日期模式：使用该日历史行情；否则使用实时行情
+  const dateMode = viewDateStr !== null && dateQuotes !== null;
+  const effectiveQuotes = dateMode ? dateQuotes : quotes;
+  const effectiveNames = dateMode ? { ...quoteNames, ...dateNames } : quoteNames;
+  const effectiveEstimating = dateMode ? false : estimating;
+
   const priceMap: PriceMap = useMemo(() => {
     const m: PriceMap = {};
     for (const code of codes) {
-      const q = quotes[code];
+      const q = effectiveQuotes[code];
       if (!q) continue;
       // 无有效行情（数据源失败返回 0）时跳过，让 core 按成本回退（盈亏 0）
       if (q.nav > 0) m[code] = { nav: q.nav, prevNav: q.prevNav };
     }
     return m;
-  }, [codes, quotes]);
+  }, [codes, effectiveQuotes]);
 
   const snap = useMemo(() => (pf ? snapshotPortfolio(pf, priceMap) : null), [pf, priceMap]);
 
@@ -131,12 +172,12 @@ export function HomePage() {
     );
   }
 
-  const navColTitle = estimating ? '估值' : '净值';
-  const growthColTitle = estimating ? '估算涨跌' : '当日涨跌';
+  const navColTitle = effectiveEstimating ? '估值' : '净值';
+  const growthColTitle = effectiveEstimating ? '估算涨跌' : '当日涨跌';
 
   // 排序上下文与名称解析：与单元格渲染同源（需求 5.3）。名称来自行情刷新成对解析的 store。
-  const sortCtx: HoldingsSortContext = { quotes, snap };
-  const resolveName = (code: string) => resolveDisplayName(code, quoteNames, getCachedFundName);
+  const sortCtx: HoldingsSortContext = { quotes: effectiveQuotes, snap };
+  const resolveName = (code: string) => resolveDisplayName(code, effectiveNames, getCachedFundName);
 
   const columnsByKey: Record<HoldingsColumnKey, Record<string, unknown>> = {
     fund: {
@@ -155,7 +196,7 @@ export function HomePage() {
       key: 'nav',
       sorter: sortByValue((r: Position) => columnValueGetters.nav(r, sortCtx)),
       render: (_: unknown, r: Position) => {
-        const q = quotes[r.fundCode];
+        const q = effectiveQuotes[r.fundCode];
         return q && q.nav > 0 ? q.nav.toFixed(4) : '-';
       },
     },
@@ -164,18 +205,18 @@ export function HomePage() {
       key: 'growth',
       sorter: sortByValue((r: Position) => columnValueGetters.growth(r, sortCtx)),
       render: (_: unknown, r: Position) => {
-        const q = quotes[r.fundCode];
+        const q = effectiveQuotes[r.fundCode];
         if (!q || q.nav <= 0) return '-';
         return <span style={{ color: pnlColor(q.growthPct) }}>{fmtPct(q.growthPct)}</span>;
       },
     },
     dayProfit: {
-      title: estimating ? '估算收益' : '当日收益',
+      title: effectiveEstimating ? '估算收益' : '当日收益',
       key: 'dayProfit',
       sorter: sortByValue((r: Position) => columnValueGetters.dayProfit(r, sortCtx)),
       render: (_: unknown, r: Position) => {
         const sp = snap?.positions.find((p) => p.fundCode === r.fundCode);
-        const q = quotes[r.fundCode];
+        const q = effectiveQuotes[r.fundCode];
         if (!sp || !q || q.nav <= 0) return '-';
         return <span style={{ color: pnlColor(sp.dayProfit) }}>{fmtMoney(sp.dayProfit)}</span>;
       },
@@ -292,18 +333,28 @@ export function HomePage() {
         title="持仓明细"
         extra={
           <Space wrap>
-            <Tag color={estimating ? 'processing' : 'default'}>
-              {estimating ? '盘中估值' : '已公布净值'}
+            <Tag color={effectiveEstimating ? 'processing' : 'default'}>
+              {dateMode ? `历史净值（${viewDateStr}）` : effectiveEstimating ? '盘中估值' : '已公布净值'}
             </Tag>
+            <Tooltip title="查看指定日期的净值、当日涨跌与当日收益；清空回到实时">
+              <DatePicker
+                size="small"
+                allowClear
+                placeholder="查看日期"
+                value={viewDate}
+                disabledDate={(d) => d && d.valueOf() > Date.now()}
+                onChange={(d) => setViewDate(d)}
+              />
+            </Tooltip>
             <span>数据源：</span>
-            <Tooltip title={estimating ? '' : '非交易时段展示已公布净值，数据源仅在交易时段影响估值'}>
+            <Tooltip title={effectiveEstimating ? '' : '非交易时段展示已公布净值，数据源仅在交易时段影响估值'}>
               <Select
                 size="small"
                 value={settings.defaultValuationSource}
                 style={{ width: 130 }}
                 onChange={(v) => {
                   setSource(v as ValuationSourceId);
-                  if (codes.length) refresh(codes, v as ValuationSourceId);
+                  if (codes.length && !dateMode) refresh(codes, v as ValuationSourceId);
                 }}
                 options={VALUATION_SOURCES.map((s) => ({
                   label: s.name,
@@ -315,8 +366,25 @@ export function HomePage() {
               <Button
                 size="small"
                 icon={<ReloadOutlined />}
-                loading={loading}
-                onClick={() => (codes.length ? refresh(codes) : message.info('暂无持仓'))}
+                loading={loading || dateLoading}
+                onClick={() => {
+                  if (!codes.length) return message.info('暂无持仓');
+                  if (dateMode && viewDateStr) {
+                    setDateLoading(true);
+                    fetchHistoricalQuotes(
+                      codes,
+                      viewDateStr,
+                      settings.defaultValuationSource as ValuationSourceId,
+                    )
+                      .then((res) => {
+                        setDateQuotes(res.quotes);
+                        setDateNames(res.names);
+                      })
+                      .finally(() => setDateLoading(false));
+                  } else {
+                    refresh(codes);
+                  }
+                }}
               >
                 刷新
               </Button>
@@ -349,10 +417,10 @@ export function HomePage() {
             scroll={{ x: 'max-content' }}
           />
         )}
-        {estimating && quotes[codes[0]]?.confidence !== undefined && (
+        {effectiveEstimating && effectiveQuotes[codes[0]]?.confidence !== undefined && (
           <div style={{ marginTop: 8 }}>
             <Tag color="orange">
-              自建估算覆盖率参考：{((quotes[codes[0]].confidence ?? 0) * 100).toFixed(1)}%
+              自建估算覆盖率参考：{((effectiveQuotes[codes[0]].confidence ?? 0) * 100).toFixed(1)}%
             </Tag>
           </div>
         )}

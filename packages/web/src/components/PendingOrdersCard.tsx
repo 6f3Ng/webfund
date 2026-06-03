@@ -1,6 +1,8 @@
 import { Card, Table, Tag, Button, Empty, App, Tooltip } from 'antd';
 import { isOrderCancellable, type Order, type Portfolio } from '@fund/core';
 import { usePortfolioStore } from '@/stores/portfolioStore';
+import { FundCell } from '@/components/FundLabel';
+import { useFundNames } from '@/hooks/useFundNames';
 
 const TYPE_LABEL: Record<string, string> = { BUY: '买入', SELL: '卖出', CONVERT: '转换' };
 
@@ -13,13 +15,23 @@ export function PendingOrdersCard({ portfolio }: { portfolio: Portfolio }) {
   const { message } = App.useApp();
   const { cancel, settle } = usePortfolioStore();
   const now = nowIso();
+  const { resolve } = useFundNames(
+    portfolio.pendingOrders.flatMap((o) => (o.targetFundCode ? [o.fundCode, o.targetFundCode] : [o.fundCode])),
+  );
 
   const columns = [
     { title: '类型', dataIndex: 'type', key: 'type', render: (t: string) => <Tag>{TYPE_LABEL[t]}</Tag> },
     {
       title: '基金',
       key: 'fund',
-      render: (_: unknown, r: Order) => (r.targetFundCode ? `${r.fundCode}→${r.targetFundCode}` : r.fundCode),
+      render: (_: unknown, r: Order) => (
+        <FundCell
+          code={r.fundCode}
+          name={resolve(r.fundCode)}
+          targetCode={r.targetFundCode}
+          targetName={r.targetFundCode ? resolve(r.targetFundCode) : undefined}
+        />
+      ),
     },
     {
       title: '金额/份额',

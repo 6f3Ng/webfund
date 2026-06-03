@@ -11,6 +11,7 @@ const { Header, Content, Footer } = Layout;
 const navItems = [
   { key: '/', label: <Link to="/">持仓</Link> },
   { key: '/portfolios', label: <Link to="/portfolios">集合管理</Link> },
+  { key: '/fund-picker', label: <Link to="/fund-picker">选基</Link> },
   { key: '/strategies', label: <Link to="/strategies">策略</Link> },
   { key: '/backtest', label: <Link to="/backtest">回测</Link> },
   { key: '/settings', label: <Link to="/settings">设置</Link> },

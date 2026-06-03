@@ -10,7 +10,16 @@ export interface ComparisonItem {
  * 多策略集对比曲线：每个策略集一条"总资产"曲线，叠加基准（取第一个有基准的）。
  * 横轴取所有结果中最长的日期序列，缺失日期按上一有效值延展。
  */
-export function ComparisonChart({ items, initialCash }: { items: ComparisonItem[]; initialCash: number }) {
+export function ComparisonChart({
+  items,
+  initialCash,
+  resolveName,
+}: {
+  items: ComparisonItem[];
+  initialCash: number;
+  /** 基金代码 → 展示名称（需求 4：基准曲线展示名称 + 代码） */
+  resolveName?: (code: string) => string;
+}) {
   // 取最长日期轴
   const dates = items.reduce<string[]>((longest, it) => {
     const d = it.result.curve.map((p) => p.date);
@@ -40,8 +49,9 @@ export function ComparisonChart({ items, initialCash }: { items: ComparisonItem[
     const bm = withBenchmark.result.benchmark;
     const byDate = new Map(bm.curve.map((p) => [p.date, p.totalAssets]));
     let lastVal = initialCash;
+    const bmLabel = resolveName ? resolveName(bm.fundCode) : bm.fundCode;
     series.push({
-      name: `基准(${bm.fundCode}买入持有)`,
+      name: `基准(${bmLabel}买入持有)`,
       type: 'line',
       data: dates.map((d) => {
         const v = byDate.get(d);
