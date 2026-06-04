@@ -19,6 +19,8 @@ export interface ValuationDTO {
   baseNavDate?: string;
   /** 自建估值覆盖率（0~1），仅 self-calc 提供 */
   confidence?: number;
+  /** 该基金估值获取失败时的错误信息（批量接口中用于单基金降级，整体仍返回 200） */
+  error?: string;
 }
 
 /** 标准化历史净值点 */

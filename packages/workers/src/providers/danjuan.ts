@@ -32,9 +32,16 @@ export function toValuationDTO(d: DanjuanDerived): ValuationDTO {
   };
 }
 
+/** 蛋卷（雪球）接口期望的请求头：补 Referer/Accept，降低从数据中心 IP 被 403/412 拦截的概率。 */
+const DANJUAN_HEADERS: Record<string, string> = {
+  Referer: 'https://danjuanfunds.com/',
+  Origin: 'https://danjuanfunds.com',
+  Accept: 'application/json, text/plain, */*',
+};
+
 export async function fetchDanjuanValuation(code: string): Promise<ValuationDTO> {
   const url = `https://danjuanfunds.com/djapi/fund/derived/${code}`;
-  const resp = await fetchJson<DanjuanDerivedResp>(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+  const resp = await fetchJson<DanjuanDerivedResp>(url, { headers: DANJUAN_HEADERS });
   if (!resp.data) {
     throw new UpstreamError(502, `蛋卷估值响应异常 (result_code=${resp.result_code})`);
   }
@@ -71,7 +78,7 @@ export async function fetchDanjuanHistory(
   const all: NavPointDTO[] = [];
   for (let page = 1; page <= maxPages; page++) {
     const url = `https://danjuanfunds.com/djapi/fund/nav/history/${code}?size=${size}&page=${page}`;
-    const resp = await fetchJson<DanjuanHistResp>(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    const resp = await fetchJson<DanjuanHistResp>(url, { headers: DANJUAN_HEADERS });
     const items = resp.data?.items ?? [];
     all.push(...parseDanjuanHistory(items));
     if (!resp.data?.total_pages || page >= resp.data.total_pages || items.length < size) break;
