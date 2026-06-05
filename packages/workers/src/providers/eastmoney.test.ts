@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseGzJsonp, toValuationDTO, parseLsjz } from './eastmoney';
+import { parseGzJsonp, toValuationDTO, parseLsjz, parsePingzhongHistory, tsToDate } from './eastmoney';
 
 describe('eastmoney 估值解析', () => {
   // 真实样例（脱敏：结构来自公开接口）
@@ -55,5 +55,40 @@ describe('eastmoney 历史净值解析', () => {
   it('空数据返回空数组', () => {
     expect(parseLsjz({})).toEqual([]);
     expect(parseLsjz({ Data: { LSJZList: [] } })).toEqual([]);
+  });
+});
+
+describe('eastmoney pingzhongdata 历史净值解析（单请求全量）', () => {
+  // 真实结构样例：时间戳为北京时间当日 0 点对应的 UTC 毫秒
+  const sample = `
+    var fS_name = "测试基金";
+    var Data_netWorthTrend = [{"x":1432656000000,"y":1.0,"equityReturn":0,"unitMoney":""},{"x":1432828800000,"y":0.995,"equityReturn":-0.5,"unitMoney":""},{"x":1433347200000,"y":0.997,"equityReturn":0.2,"unitMoney":""}];
+    var Data_ACWorthTrend = [[1432656000000,1.0],[1432828800000,0.995],[1433347200000,0.997]];
+    var Data_grandTotal = [];
+  `;
+
+  it('时间戳按北京时间转日期', () => {
+    expect(tsToDate(1432656000000)).toBe('2015-05-27');
+    expect(tsToDate(1780502400000)).toBe('2026-06-04');
+  });
+
+  it('解析并合并单位净值与累计净值，按日期升序', () => {
+    const points = parsePingzhongHistory(sample);
+    expect(points).toHaveLength(3);
+    expect(points[0].date).toBe('2015-05-27');
+    expect(points[0].nav).toBe(1.0);
+    expect(points[0].accNav).toBe(1.0);
+    expect(points[1].nav).toBe(0.995);
+    expect(points[1].growthPct).toBe(-0.5);
+    expect(points[2].date).toBe('2015-06-04');
+  });
+
+  it('按 start/end 区间过滤', () => {
+    const points = parsePingzhongHistory(sample, '2015-05-28', '2015-06-04');
+    expect(points.map((p) => p.date)).toEqual(['2015-05-29', '2015-06-04']);
+  });
+
+  it('格式异常抛错', () => {
+    expect(() => parsePingzhongHistory('no data here')).toThrow();
   });
 });

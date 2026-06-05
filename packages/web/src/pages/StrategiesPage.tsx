@@ -81,6 +81,7 @@ export function StrategiesPage() {
     setCurrent,
     load,
     createSet,
+    renameSet,
     removeSet,
     addStrategy,
     updateStrategy,
@@ -91,6 +92,8 @@ export function StrategiesPage() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState('');
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameName, setRenameName] = useState('');
   const [stratModal, setStratModal] = useState<{ open: boolean; editing: Strategy | null }>({
     open: false,
     editing: null,
@@ -106,6 +109,22 @@ export function StrategiesPage() {
 
   const set = current();
   const { resolve } = useFundNames(set?.strategies.map((s) => s.fundCode) ?? []);
+
+  const submitRename = () => {
+    const name = renameName.trim();
+    if (!name) return message.warning('请输入名称');
+    if (!set) return;
+    if (name === set.name) {
+      setRenameOpen(false);
+      return;
+    }
+    if (sets.some((s) => s.id !== set.id && s.name === name)) {
+      return message.warning('已存在同名策略集');
+    }
+    renameSet(set.id, name);
+    message.success('已重命名');
+    setRenameOpen(false);
+  };
 
   const columns = [
     { title: '名称', dataIndex: 'name', key: 'name' },
@@ -183,6 +202,16 @@ export function StrategiesPage() {
             >
               导出当前
             </Button>
+            <Button
+              disabled={!set}
+              onClick={() => {
+                if (!set) return;
+                setRenameName(set.name);
+                setRenameOpen(true);
+              }}
+            >
+              重命名
+            </Button>
             <Popconfirm title="删除当前策略集？" onConfirm={() => set && removeSet(set.id)}>
               <Button danger disabled={!set}>
                 删除当前
@@ -222,6 +251,21 @@ export function StrategiesPage() {
         onCancel={() => setCreateOpen(false)}
       >
         <Input placeholder="策略集名称" value={newName} onChange={(e) => setNewName(e.target.value)} />
+      </Modal>
+
+      {/* 重命名策略集 */}
+      <Modal
+        title="重命名策略集"
+        open={renameOpen}
+        onOk={submitRename}
+        onCancel={() => setRenameOpen(false)}
+      >
+        <Input
+          placeholder="策略集名称"
+          value={renameName}
+          onChange={(e) => setRenameName(e.target.value)}
+          onPressEnter={submitRename}
+        />
       </Modal>
 
       {/* 策略编辑 */}
