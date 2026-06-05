@@ -16,7 +16,17 @@ export interface RateLimitOptions {
   refillPerSec: number;
 }
 
-const DEFAULT_OPTIONS: RateLimitOptions = { capacity: 30, refillPerSec: 10 };
+/**
+ * 默认限流参数。
+ *
+ * 取值偏宽松的原因：本服务是个人工具（CORS 白名单限定来源），对第三方上游的真正保护
+ * 来自缓存层（估值 45s、历史 6h、持仓/基金信息 24h）——一旦命中缓存便不再触达上游。
+ * 而前端在多基金持仓场景下会按基金 fan-out 调用 `/api/history`、`/api/fund-info`
+ * （如 20+ 只基金 × 多次刷新/结算叠加），过紧的桶会把这些**合法**请求误判为限流并返回 429，
+ * 导致"概率性多个基金取不到估值"。因此放宽到可从容支撑约 50 只基金、数轮叠加请求，
+ * 同时仍能拦截明显异常的高频突发。
+ */
+const DEFAULT_OPTIONS: RateLimitOptions = { capacity: 120, refillPerSec: 60 };
 
 /** 返回 true 表示放行，false 表示被限流 */
 export function allowRequest(key: string, options: RateLimitOptions = DEFAULT_OPTIONS): boolean {

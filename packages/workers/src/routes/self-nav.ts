@@ -29,7 +29,7 @@ app.get('/', async (c) => {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean)
-    .slice(0, 20);
+    .slice(0, 50); // 上限保护（与 /api/valuation 一致，避免持仓基金较多时被静默截断）
   if (codes.length === 0) return fail(c, ErrorCodes.BAD_REQUEST, 'codes 为空', 400);
 
   // 1. 限并发取各基金持仓（天级缓存）与基准净值（估值缓存）；单只失败不影响整体。
