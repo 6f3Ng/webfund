@@ -86,6 +86,10 @@ export function StrategiesPage() {
     addStrategy,
     updateStrategy,
     removeStrategy,
+    removeStrategies,
+    updateStrategiesFundCode,
+    duplicateSet,
+    removeSets,
     exportSet,
     importFromString,
   } = useStrategyStore();
@@ -102,6 +106,12 @@ export function StrategiesPage() {
   const [importText, setImportText] = useState('');
   const [exportOpen, setExportOpen] = useState(false);
   const [exportText, setExportText] = useState('');
+  // 策略批量选择（需求 4）
+  const [selectedStrategyIds, setSelectedStrategyIds] = useState<string[]>([]);
+  const [batchFundOpen, setBatchFundOpen] = useState(false);
+  const [batchFundCode, setBatchFundCode] = useState('');
+  // 策略集批量选择（需求 5）
+  const [selectedSetIds, setSelectedSetIds] = useState<string[]>([]);
 
   useEffect(() => {
     load();
@@ -109,6 +119,11 @@ export function StrategiesPage() {
 
   const set = current();
   const { resolve } = useFundNames(set?.strategies.map((s) => s.fundCode) ?? []);
+
+  // 切换策略集时清空策略选择
+  useEffect(() => {
+    setSelectedStrategyIds([]);
+  }, [currentId]);
 
   const submitRename = () => {
     const name = renameName.trim();
@@ -124,6 +139,37 @@ export function StrategiesPage() {
     renameSet(set.id, name);
     message.success('已重命名');
     setRenameOpen(false);
+  };
+
+  const handleBatchDeleteStrategies = () => {
+    if (!set || selectedStrategyIds.length === 0) return;
+    removeStrategies(set.id, selectedStrategyIds);
+    message.success(`已删除 ${selectedStrategyIds.length} 条策略`);
+    setSelectedStrategyIds([]);
+  };
+
+  const submitBatchFundCode = () => {
+    const code = batchFundCode.trim();
+    if (!/^\d{6}$/.test(code)) return message.warning('请输入 6 位基金代码');
+    if (!set || selectedStrategyIds.length === 0) return;
+    updateStrategiesFundCode(set.id, selectedStrategyIds, code);
+    message.success(`已批量修改 ${selectedStrategyIds.length} 条策略的标的为 ${code}`);
+    setBatchFundOpen(false);
+    setBatchFundCode('');
+    setSelectedStrategyIds([]);
+  };
+
+  const handleDuplicateSet = () => {
+    if (!set) return;
+    const copy = duplicateSet(set.id);
+    if (copy) message.success(`已复制副本：${copy.name}`);
+  };
+
+  const handleBatchDeleteSets = () => {
+    if (selectedSetIds.length === 0) return;
+    removeSets(selectedSetIds);
+    message.success(`已删除 ${selectedSetIds.length} 个策略集`);
+    setSelectedSetIds([]);
   };
 
   const columns = [
@@ -186,37 +232,74 @@ export function StrategiesPage() {
         {sets.length === 0 ? (
           <Empty description="还没有策略集，点击右上角新建" />
         ) : (
-          <Space wrap>
-            <Select
-              value={currentId ?? undefined}
-              style={{ minWidth: 200 }}
-              onChange={setCurrent}
-              options={sets.map((s) => ({ label: `${s.name}（${s.strategies.length}）`, value: s.id }))}
-            />
-            <Button
-              onClick={() => {
-                if (!set) return;
-                setExportText(exportSet(set.id));
-                setExportOpen(true);
-              }}
-            >
-              导出当前
-            </Button>
-            <Button
-              disabled={!set}
-              onClick={() => {
-                if (!set) return;
-                setRenameName(set.name);
-                setRenameOpen(true);
-              }}
-            >
-              重命名
-            </Button>
-            <Popconfirm title="删除当前策略集？" onConfirm={() => set && removeSet(set.id)}>
-              <Button danger disabled={!set}>
-                删除当前
+          <Space direction="vertical" style={{ width: '100%' }} size="middle">
+            <Space wrap>
+              <Select
+                value={currentId ?? undefined}
+                style={{ minWidth: 200 }}
+                onChange={setCurrent}
+                options={sets.map((s) => ({ label: `${s.name}（${s.strategies.length}）`, value: s.id }))}
+              />
+              <Button
+                onClick={() => {
+                  if (!set) return;
+                  setExportText(exportSet(set.id));
+                  setExportOpen(true);
+                }}
+                disabled={!set}
+              >
+                导出当前
               </Button>
-            </Popconfirm>
+              <Button disabled={!set} onClick={handleDuplicateSet}>
+                复制副本
+              </Button>
+              <Button
+                disabled={!set}
+                onClick={() => {
+                  if (!set) return;
+                  setRenameName(set.name);
+                  setRenameOpen(true);
+                }}
+              >
+                重命名
+              </Button>
+              <Popconfirm title="删除当前策略集？" onConfirm={() => set && removeSet(set.id)}>
+                <Button danger disabled={!set}>
+                  删除当前
+                </Button>
+              </Popconfirm>
+            </Space>
+
+            {/* 批量管理策略集（需求 5） */}
+            <div>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                批量管理策略集
+              </Typography.Text>
+              <Space wrap style={{ width: '100%', marginTop: 4 }}>
+                <Select
+                  mode="multiple"
+                  allowClear
+                  style={{ minWidth: 280 }}
+                  placeholder="选择要批量删除的策略集"
+                  maxTagCount="responsive"
+                  value={selectedSetIds}
+                  onChange={setSelectedSetIds}
+                  options={sets.map((s) => ({
+                    label: `${s.name}（${s.strategies.length}）`,
+                    value: s.id,
+                  }))}
+                />
+                <Popconfirm
+                  title={`确认删除选中的 ${selectedSetIds.length} 个策略集？`}
+                  onConfirm={handleBatchDeleteSets}
+                  disabled={selectedSetIds.length === 0}
+                >
+                  <Button danger disabled={selectedSetIds.length === 0}>
+                    批量删除（{selectedSetIds.length}）
+                  </Button>
+                </Popconfirm>
+              </Space>
+            </div>
           </Space>
         )}
       </Card>
@@ -233,7 +316,41 @@ export function StrategiesPage() {
           {set.strategies.length === 0 ? (
             <Empty description="该策略集暂无策略" />
           ) : (
-            <Table rowKey="id" dataSource={set.strategies} columns={columns} pagination={false} size="small" scroll={{ x: 'max-content' }} />
+            <Space direction="vertical" style={{ width: '100%' }} size="small">
+              {selectedStrategyIds.length > 0 && (
+                <Space wrap>
+                  <Typography.Text type="secondary">
+                    已选 {selectedStrategyIds.length} 条
+                  </Typography.Text>
+                  <Button size="small" onClick={() => setBatchFundOpen(true)}>
+                    批量修改标的
+                  </Button>
+                  <Popconfirm
+                    title={`确认删除选中的 ${selectedStrategyIds.length} 条策略？`}
+                    onConfirm={handleBatchDeleteStrategies}
+                  >
+                    <Button size="small" danger>
+                      批量删除
+                    </Button>
+                  </Popconfirm>
+                  <Button size="small" type="link" onClick={() => setSelectedStrategyIds([])}>
+                    取消选择
+                  </Button>
+                </Space>
+              )}
+              <Table
+                rowKey="id"
+                dataSource={set.strategies}
+                columns={columns}
+                pagination={false}
+                size="small"
+                scroll={{ x: 'max-content' }}
+                rowSelection={{
+                  selectedRowKeys: selectedStrategyIds,
+                  onChange: (keys) => setSelectedStrategyIds(keys as string[]),
+                }}
+              />
+            </Space>
           )}
         </Card>
       )}
@@ -265,6 +382,25 @@ export function StrategiesPage() {
           value={renameName}
           onChange={(e) => setRenameName(e.target.value)}
           onPressEnter={submitRename}
+        />
+      </Modal>
+
+      {/* 批量修改标的 */}
+      <Modal
+        title="批量修改标的基金代码"
+        open={batchFundOpen}
+        onOk={submitBatchFundCode}
+        onCancel={() => setBatchFundOpen(false)}
+      >
+        <Typography.Paragraph type="secondary">
+          将选中的 {selectedStrategyIds.length} 条策略的标的基金统一改为：
+        </Typography.Paragraph>
+        <Input
+          placeholder="6 位基金代码"
+          maxLength={6}
+          value={batchFundCode}
+          onChange={(e) => setBatchFundCode(e.target.value)}
+          onPressEnter={submitBatchFundCode}
         />
       </Modal>
 

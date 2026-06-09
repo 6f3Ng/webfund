@@ -153,4 +153,72 @@ describe('风险调整指标', () => {
     expect(d.peakDate).toBe('d2');
     expect(d.troughDate).toBe('d3');
   });
+
+  it('drawdownDetail 修复天数：谷底后回到峰值', () => {
+    const curve = [
+      { date: 'd1', value: 1 },
+      { date: 'd2', value: 2 }, // 峰值
+      { date: 'd3', value: 1 }, // 谷底（回撤 50%）
+      { date: 'd4', value: 1.5 },
+      { date: 'd5', value: 2 }, // 修复（回到峰值 2）
+      { date: 'd6', value: 2.2 },
+    ];
+    const d = drawdownDetail(curve);
+    expect(d.maxDrawdown).toBe(0.5);
+    expect(d.troughDate).toBe('d3');
+    expect(d.recoveryDate).toBe('d5');
+    expect(d.recoveryDays).toBe(2); // d3 → d5 共 2 个交易日
+    expect(d.daysSinceTrough).toBeUndefined();
+  });
+
+  it('drawdownDetail 期末未修复：返回 daysSinceTrough', () => {
+    const curve = [
+      { date: 'd1', value: 2 }, // 峰值
+      { date: 'd2', value: 1.8 },
+      { date: 'd3', value: 1.4 },
+      { date: 'd4', value: 1.0 }, // 谷底，期末仍未修复
+    ];
+    const d = drawdownDetail(curve);
+    expect(d.maxDrawdown).toBe(0.5); // 2 → 1
+    expect(d.troughDate).toBe('d4');
+    expect(d.recoveryDate).toBeUndefined();
+    expect(d.recoveryDays).toBeUndefined();
+    expect(d.daysSinceTrough).toBe(0); // 谷底即期末
+  });
+
+  it('drawdownDetail 当前回撤未修复时给出历史已修复最大回撤', () => {
+    // 第一段：1→0.7(回撤30%)→1.0 修复(创新高)；第二段：1→0.6(回撤40%) 期末未修复
+    const curve = [
+      { date: 'd1', value: 1.0 },
+      { date: 'd2', value: 0.7 }, // 第一段谷底（30%）
+      { date: 'd3', value: 1.0 }, // 修复（回到峰值 1.0）
+      { date: 'd4', value: 1.0 }, // 维持峰值
+      { date: 'd5', value: 0.8 },
+      { date: 'd6', value: 0.6 }, // 第二段谷底（40%），期末未修复
+    ];
+    const d = drawdownDetail(curve);
+    // 当前最大回撤 = 40%（第二段，更深），未修复
+    expect(d.maxDrawdown).toBe(0.4);
+    expect(d.troughDate).toBe('d6');
+    expect(d.recoveryDays).toBeUndefined();
+    expect(d.daysSinceTrough).toBe(0);
+    // 历史已修复的最大回撤 = 30%（第一段），谷底 d2 → 修复 d3，1 个交易日
+    expect(d.recoveredMaxDrawdown).toBeCloseTo(0.3, 4);
+    expect(d.recoveredTroughDate).toBe('d2');
+    expect(d.recoveredRecoveryDate).toBe('d3');
+    expect(d.recoveredRecoveryDays).toBe(1);
+  });
+
+  it('drawdownDetail 全程已修复时历史已修复回撤即最大回撤', () => {
+    const curve = [
+      { date: 'd1', value: 2 },
+      { date: 'd2', value: 1 }, // 回撤 50%
+      { date: 'd3', value: 2.5 }, // 修复并创新高
+    ];
+    const d = drawdownDetail(curve);
+    expect(d.maxDrawdown).toBe(0.5);
+    expect(d.recoveryDays).toBe(1); // 当前最大回撤已修复
+    expect(d.recoveredMaxDrawdown).toBeCloseTo(0.5, 4);
+    expect(d.recoveredRecoveryDays).toBe(1);
+  });
 });

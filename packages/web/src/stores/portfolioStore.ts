@@ -69,6 +69,10 @@ interface PortfolioState {
     data: { name: string; initialCash: number; positions?: InitialPosition[] },
   ) => Portfolio;
   remove: (id: string) => void;
+  /** 复制一个持仓集合为副本（新 id + 名称追加"(副本)"） */
+  duplicate: (id: string) => Portfolio | null;
+  /** 批量删除持仓集合 */
+  removeMany: (ids: string[]) => void;
 
   buy: (params: { fundCode: string; amount: number; submitAt?: string }) => Promise<void>;
   sell: (params: { fundCode: string; shares: number; submitAt?: string }) => Promise<void>;
@@ -189,6 +193,34 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
     set({
       portfolios: remaining,
       currentId: get().currentId === id ? (remaining[0]?.id ?? null) : get().currentId,
+    });
+  },
+
+  duplicate: (id) => {
+    const pf = repo.get(id);
+    if (!pf) return null;
+    // 通过导出再导入实现深拷贝 + 新 id + 重名副本（复用 codec 校验/重命名逻辑）
+    const copy = importPortfolio(exportPortfolio(pf), { existingNames: repo.existingNames() });
+    repo.save(copy);
+    set({ portfolios: [...get().portfolios, copy], currentId: copy.id });
+    // 异步补全持仓名称
+    void mapRequests(
+      copy.positions.map((p) => p.fundCode),
+      (code) => prefetchFundInfo(code),
+    );
+    return copy;
+  },
+
+  removeMany: (ids) => {
+    const idSet = new Set(ids);
+    for (const id of ids) repo.remove(id);
+    const remaining = get().portfolios.filter((p) => !idSet.has(p.id));
+    set({
+      portfolios: remaining,
+      currentId:
+        get().currentId && idSet.has(get().currentId!)
+          ? (remaining[0]?.id ?? null)
+          : get().currentId,
     });
   },
 

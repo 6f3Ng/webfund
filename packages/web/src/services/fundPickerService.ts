@@ -49,6 +49,17 @@ export interface FundMetrics {
   maxDrawdown: number;
   maxDrawdownPeakDate?: string;
   maxDrawdownTroughDate?: string;
+  /** 回撤修复日期（谷底后回到峰值；未修复为 undefined） */
+  maxDrawdownRecoveryDate?: string;
+  /** 回撤修复天数（谷底→修复的交易日数；未修复为 undefined） */
+  maxDrawdownRecoveryDays?: number;
+  /** 期末仍未修复时，谷底至期末的交易日数 */
+  maxDrawdownDaysSinceTrough?: number;
+  /** 历史已修复的最大回撤幅度（正数；当前最大回撤未修复时用于补充展示），无则为 0 */
+  recoveredMaxDrawdown?: number;
+  recoveredMaxDrawdownTroughDate?: string;
+  recoveredMaxDrawdownRecoveryDate?: string;
+  recoveredMaxDrawdownRecoveryDays?: number;
   /** 年化波动率（小数） */
   annualizedVolatility: number;
   /** 夏普比率 */
@@ -102,6 +113,13 @@ export function computeFundMetrics(points: NavPointResponse[], riskFreeRate = 0)
     maxDrawdown: dd.maxDrawdown,
     maxDrawdownPeakDate: dd.peakDate,
     maxDrawdownTroughDate: dd.troughDate,
+    maxDrawdownRecoveryDate: dd.recoveryDate,
+    maxDrawdownRecoveryDays: dd.recoveryDays,
+    maxDrawdownDaysSinceTrough: dd.daysSinceTrough,
+    recoveredMaxDrawdown: dd.recoveredMaxDrawdown,
+    recoveredMaxDrawdownTroughDate: dd.recoveredTroughDate,
+    recoveredMaxDrawdownRecoveryDate: dd.recoveredRecoveryDate,
+    recoveredMaxDrawdownRecoveryDays: dd.recoveredRecoveryDays,
     annualizedVolatility: vol,
     sharpeRatio: sharpe,
     sortinoRatio: sortino,

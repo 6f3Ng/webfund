@@ -49,9 +49,12 @@ export function ComparisonChart({
     const bm = withBenchmark.result.benchmark;
     const byDate = new Map(bm.curve.map((p) => [p.date, p.totalAssets]));
     let lastVal = initialCash;
-    const bmLabel = resolveName ? resolveName(bm.fundCode) : bm.fundCode;
+    const bmLabel =
+      bm.kind === 'STRATEGY'
+        ? `策略${bm.label ? `:${bm.label}` : ''}`
+        : `${resolveName && bm.fundCode ? resolveName(bm.fundCode) : (bm.fundCode ?? '')}买入持有`;
     series.push({
-      name: `基准(${bmLabel}买入持有)`,
+      name: `基准(${bmLabel})`,
       type: 'line',
       data: dates.map((d) => {
         const v = byDate.get(d);

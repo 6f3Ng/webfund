@@ -24,3 +24,17 @@ export function pnlColor(v: number): string {
   if (v < 0) return '#3f8600';
   return 'inherit';
 }
+
+/**
+ * 最大回撤展示：输入为正的回撤幅度（小数，如 0.3137），
+ * 回撤代表下跌，按负值展示（"-31.37%"）；0 显示 "0.00%"。
+ */
+export function fmtDrawdown(v: number): string {
+  if (v <= 0) return '0.00%';
+  return `-${(v * 100).toFixed(2)}%`;
+}
+
+/** 回撤展示颜色：最大回撤一律用绿色（A股习惯：下跌为绿） */
+export function drawdownColor(_v?: number): string {
+  return '#3f8600';
+}

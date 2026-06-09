@@ -1,5 +1,5 @@
 import type { FundCode, NavPoint } from '../domain';
-import { roundAmount, roundShares, roundRate } from '../utils/decimal';
+import { roundAmount, roundShares, roundRate, roundNav } from '../utils/decimal';
 import { dateLte } from '../utils/date';
 import { evaluateStrategy } from './evaluators';
 import { mergeActions } from './conflict';
@@ -70,7 +70,10 @@ export function runBacktest(input: BacktestInput): BacktestResult {
   }
 
   // 2. 初始化模拟账户
-  let cash = roundAmount(input.initialCash);
+  // 内部以 0 起始累计现金流，结束后再据 input.initialCash（或自动推导）整体平移，
+  // 使「初始资金」成为可选项：不提供时取现金缺口最大值，让期间现金恰好不为负。
+  let cash = 0;
+  let minCash = 0; // 模拟过程中现金的最低点（相对 0 起点）
   const positions = new Map<FundCode, SimPosition>();
   const trades: BacktestTrade[] = [];
   const curve: DailySnapshot[] = [];
@@ -92,7 +95,9 @@ export function runBacktest(input: BacktestInput): BacktestResult {
   for (let i = 0; i < tradingDates.length; i++) {
     const date = tradingDates[i];
 
-    const ctx = buildContext(date, i, cash, positions, sortedNav, navOn);
+    // 策略求值时不再受可用现金限制（去掉初始资金限制）：以 Infinity 作为评估现金，
+    // 让策略按其逻辑触发；真实现金 `cash` 仍单独累计，买入超出部分视为追加投入（可为负）。
+    const ctx = buildContext(date, i, Infinity, positions, sortedNav, navOn);
 
     // 收集所有策略动作
     const rawActions: StrategyAction[] = [];
@@ -150,9 +155,10 @@ export function runBacktest(input: BacktestInput): BacktestResult {
         });
         if (pos.shares <= 1e-8) positions.delete(action.fundCode);
       } else {
-        // BUY
+        // BUY —— 去掉初始资金限制：所需金额超过可用现金时视为「追加投入」，
+        // 现金可为负（代表累计净投入超过期初资金），完整反映策略真实资金需求。
         const amount = roundAmount(action.amount ?? 0);
-        if (amount <= 0 || amount > cash) continue;
+        if (amount <= 0) continue;
         const netAmount = roundAmount(amount / (1 + purchaseFee));
         const fee = roundAmount(amount - netAmount);
         const shares = roundShares(netAmount / nav);
@@ -193,6 +199,8 @@ export function runBacktest(input: BacktestInput): BacktestResult {
     }
     prevMarketValue = marketValue;
 
+    minCash = Math.min(minCash, cash);
+
     curve.push({
       date,
       cash,
@@ -204,12 +212,37 @@ export function runBacktest(input: BacktestInput): BacktestResult {
     });
   }
 
+  // 3.5 确定期初可用资金并整体平移现金/总资产。
+  // - 提供 initialCash：直接采用（现金可为负，代表追加投入）。
+  // - 未提供：自动取现金缺口最大值 max(0, -minCash)，使期间现金恰好不为负，
+  //   即反映"按策略买卖到底需要准备多少钱"。
+  const effectiveInitialCash =
+    input.initialCash !== undefined ? roundAmount(input.initialCash) : roundAmount(Math.max(0, -minCash));
+  if (effectiveInitialCash !== 0) {
+    for (const snap of curve) {
+      snap.cash = roundAmount(snap.cash + effectiveInitialCash);
+      snap.totalAssets = roundAmount(snap.totalAssets + effectiveInitialCash);
+    }
+  }
+
   // 4. 指标
   const last = curve[curve.length - 1];
-  const finalAssets = last ? last.totalAssets : input.initialCash;
-  const finalCash = last ? last.cash : input.initialCash;
+  const finalAssets = last ? last.totalAssets : effectiveInitialCash;
+  const finalCash = last ? last.cash : effectiveInitialCash;
   const finalHoldingValue = last ? last.marketValue : 0;
   const finalHoldingCost = last ? last.cost : 0;
+  // 期末持有份额（所有持仓份额之和）
+  const finalHoldingShares = roundShares(
+    [...positions.values()].reduce((acc, p) => acc + p.shares, 0),
+  );
+  // 期末成本单价 = 持仓成本 / 持有份额；期末实际单价 = 持有市值 / 持有份额
+  const finalCostPrice = finalHoldingShares > 1e-8 ? roundNav(finalHoldingCost / finalHoldingShares) : 0;
+  const finalUnitNav = finalHoldingShares > 1e-8 ? roundNav(finalHoldingValue / finalHoldingShares) : 0;
+  const holdingProfit = roundAmount(finalHoldingValue - finalHoldingCost);
+  const holdingProfitRate = finalHoldingCost > 1e-8 ? roundRate(holdingProfit / finalHoldingCost) : 0;
+  const totalProfit = roundAmount(finalAssets - effectiveInitialCash);
+  // 实际投入成本（累计净投入）作为累计收益率的基准
+  const cumulativeReturn = netInvested > 1e-8 ? roundRate(totalProfit / netInvested) : 0;
   const buyCount = trades.filter((t) => t.side === 'BUY').length;
   const sellCount = trades.length - buyCount;
 
@@ -226,25 +259,37 @@ export function runBacktest(input: BacktestInput): BacktestResult {
   const winRatio = winningDaysRatio(holdReturns);
 
   const metrics = {
-    initialCash: input.initialCash,
+    initialCash: effectiveInitialCash,
     totalBought,
     totalSold,
     totalFee,
     netInvested,
     finalCash,
     finalHoldingValue,
+    finalHoldingShares,
     finalHoldingCost,
+    finalCostPrice,
+    finalUnitNav,
     finalAssets,
-    holdingProfit: roundAmount(finalHoldingValue - finalHoldingCost),
-    totalProfit: roundAmount(finalAssets - input.initialCash),
-    totalReturn: totalReturn(input.initialCash, finalAssets),
-    annualizedReturn: annualizedReturn(input.initialCash, finalAssets, input.start, input.end),
+    holdingProfit,
+    holdingProfitRate,
+    totalProfit,
+    cumulativeReturn,
+    totalReturn: totalReturn(effectiveInitialCash, finalAssets),
+    annualizedReturn: annualizedReturn(effectiveInitialCash, finalAssets, input.start, input.end),
     holdingReturn: holdingRet,
     holdingAnnualizedReturn: holdingAnn,
     maxDrawdown: maxDrawdown(curve),
     holdingMaxDrawdown: holdingMaxDrawdown(curve),
     maxDrawdownPeakDate: ddDetail.peakDate,
     maxDrawdownTroughDate: ddDetail.troughDate,
+    maxDrawdownRecoveryDate: ddDetail.recoveryDate,
+    maxDrawdownRecoveryDays: ddDetail.recoveryDays,
+    maxDrawdownDaysSinceTrough: ddDetail.daysSinceTrough,
+    recoveredMaxDrawdown: ddDetail.recoveredMaxDrawdown,
+    recoveredMaxDrawdownTroughDate: ddDetail.recoveredTroughDate,
+    recoveredMaxDrawdownRecoveryDate: ddDetail.recoveredRecoveryDate,
+    recoveredMaxDrawdownRecoveryDays: ddDetail.recoveredRecoveryDays,
     annualizedVolatility: annVol,
     sharpeRatio: sharpe,
     sortinoRatio: sortino,
@@ -256,19 +301,8 @@ export function runBacktest(input: BacktestInput): BacktestResult {
     tradingDays: tradingDates.length,
   };
 
-  // 5. 基准（买入持有）
-  const benchmarkCode = input.benchmarkFundCode ?? Object.keys(input.navData)[0];
-  const benchmark = benchmarkCode
-    ? buildBenchmark(
-        benchmarkCode,
-        tradingDates,
-        navMaps,
-        input.initialCash,
-        purchaseFee,
-        input.start,
-        input.end,
-      )
-    : undefined;
+  // 5. 基准对比
+  const benchmark = buildBenchmarkResult(input, tradingDates, navMaps, purchaseFee, effectiveInitialCash);
 
   return { metrics, curve, trades, benchmark };
 }
@@ -323,6 +357,58 @@ function computeMarketValue(
   return roundAmount(mv);
 }
 
+/**
+ * 构建基准对比结果。
+ * 优先级：benchmarkStrategies（按策略回测）> benchmarkFundCode（指定基金买入持有）> 首个标的买入持有。
+ */
+function buildBenchmarkResult(
+  input: BacktestInput,
+  tradingDates: string[],
+  navMaps: Map<FundCode, Map<string, number>>,
+  purchaseFee: number,
+  effectiveInitialCash: number,
+): BenchmarkResult | undefined {
+  // 1) 策略基准：用相同区间/资金/费率独立回测一组策略
+  if (input.benchmarkStrategies && input.benchmarkStrategies.length > 0) {
+    const sub = runBacktest({
+      strategies: input.benchmarkStrategies,
+      conflictPolicy: input.benchmarkConflictPolicy ?? input.conflictPolicy,
+      navData: input.navData,
+      start: input.start,
+      end: input.end,
+      initialCash: effectiveInitialCash,
+      purchaseFeeRate: input.purchaseFeeRate,
+      redeemFeeRate: input.redeemFeeRate,
+      riskFreeRate: input.riskFreeRate,
+      // 不再向下传 benchmark，避免无限递归
+    });
+    const repCode = input.benchmarkStrategies[0]?.fundCode;
+    return {
+      kind: 'STRATEGY',
+      fundCode: repCode,
+      label: input.benchmarkLabel,
+      totalReturn: sub.metrics.totalReturn,
+      annualizedReturn: sub.metrics.annualizedReturn,
+      maxDrawdown: sub.metrics.maxDrawdown,
+      curve: sub.curve,
+    };
+  }
+
+  // 2) 指定基金买入持有；否则取首个标的
+  const benchmarkCode = input.benchmarkFundCode ?? Object.keys(input.navData)[0];
+  if (!benchmarkCode) return undefined;
+  return buildBenchmark(
+    benchmarkCode,
+    tradingDates,
+    navMaps,
+    effectiveInitialCash,
+    purchaseFee,
+    input.start,
+    input.end,
+    input.benchmarkLabel,
+  );
+}
+
 function buildBenchmark(
   code: FundCode,
   tradingDates: string[],
@@ -331,6 +417,7 @@ function buildBenchmark(
   purchaseFee: number,
   start: string,
   end: string,
+  label?: string,
 ): BenchmarkResult {
   const navMap = navMaps.get(code);
   const curve: DailySnapshot[] = [];
@@ -362,7 +449,9 @@ function buildBenchmark(
   }
   const final = curve.length > 0 ? curve[curve.length - 1].totalAssets : initialCash;
   return {
+    kind: 'BUY_HOLD',
     fundCode: code,
+    label,
     totalReturn: roundRate((final - initialCash) / initialCash),
     annualizedReturn: annualizedReturn(initialCash, final, start, end),
     maxDrawdown: maxDrawdown(curve),

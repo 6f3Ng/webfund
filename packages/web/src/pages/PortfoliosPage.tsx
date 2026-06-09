@@ -21,7 +21,7 @@ import type { Portfolio } from '@fund/core';
 
 export function PortfoliosPage() {
   const { message } = App.useApp();
-  const { portfolios, load, create, rename, edit, remove, exportCurrent, setCurrent, importFromString } =
+  const { portfolios, load, create, rename, edit, remove, duplicate, removeMany, exportCurrent, setCurrent, importFromString } =
     usePortfolioStore();
 
   const [createForm] = Form.useForm();
@@ -34,6 +34,8 @@ export function PortfoliosPage() {
   const [renameForm] = Form.useForm();
   const [editing, setEditing] = useState<Portfolio | null>(null);
   const [editForm] = Form.useForm();
+  // 批量删除选择（需求 5）
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   useEffect(() => {
     load();
@@ -114,6 +116,18 @@ export function PortfoliosPage() {
     }
   };
 
+  const handleDuplicate = (p: Portfolio) => {
+    const copy = duplicate(p.id);
+    if (copy) message.success(`已复制副本：${copy.name}`);
+  };
+
+  const handleBatchDelete = () => {
+    if (selectedIds.length === 0) return;
+    removeMany(selectedIds);
+    message.success(`已删除 ${selectedIds.length} 个集合`);
+    setSelectedIds([]);
+  };
+
   const columns = [
     { title: '名称', dataIndex: 'name', key: 'name' },
     { title: '初始资金', dataIndex: 'initialCash', key: 'initialCash', render: fmtMoney },
@@ -156,6 +170,9 @@ export function PortfoliosPage() {
           <Button size="small" onClick={() => handleExport(r)}>
             导出
           </Button>
+          <Button size="small" onClick={() => handleDuplicate(r)}>
+            复制
+          </Button>
           <Popconfirm title="确认删除该集合？" onConfirm={() => remove(r.id)}>
             <Button size="small" danger>
               删除
@@ -178,7 +195,33 @@ export function PortfoliosPage() {
         </Space>
       }
     >
-      <Table rowKey="id" dataSource={portfolios} columns={columns} pagination={false} scroll={{ x: 'max-content' }} />
+      {selectedIds.length > 0 && (
+        <Space wrap style={{ marginBottom: 12 }}>
+          <Typography.Text type="secondary">已选 {selectedIds.length} 个集合</Typography.Text>
+          <Popconfirm
+            title={`确认删除选中的 ${selectedIds.length} 个集合？`}
+            onConfirm={handleBatchDelete}
+          >
+            <Button danger size="small">
+              批量删除
+            </Button>
+          </Popconfirm>
+          <Button size="small" type="link" onClick={() => setSelectedIds([])}>
+            取消选择
+          </Button>
+        </Space>
+      )}
+      <Table
+        rowKey="id"
+        dataSource={portfolios}
+        columns={columns}
+        pagination={false}
+        scroll={{ x: 'max-content' }}
+        rowSelection={{
+          selectedRowKeys: selectedIds,
+          onChange: (keys) => setSelectedIds(keys as string[]),
+        }}
+      />
 
       <Modal
         title="新建持仓集合"

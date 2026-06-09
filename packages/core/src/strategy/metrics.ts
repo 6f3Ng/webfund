@@ -90,31 +90,119 @@ export function winningDaysRatio(returns: number[]): number {
   return roundRate(wins / returns.length);
 }
 
-/** 最大回撤区间明细（峰值日期、谷底日期、回撤幅度） */
-export function drawdownDetail(
-  curve: { date: string; value: number }[],
-): { maxDrawdown: number; peakDate?: string; troughDate?: string } {
+/** 最大回撤区间明细（峰值日期、谷底日期、回撤幅度、修复信息） */
+export function drawdownDetail(curve: { date: string; value: number }[]): {
+  maxDrawdown: number;
+  peakDate?: string;
+  troughDate?: string;
+  /** 回撤修复日期：谷底之后净值/资产首次回到峰值的日期；未修复为 undefined */
+  recoveryDate?: string;
+  /**
+   * 修复天数：从谷底到修复日之间的交易日数（不含谷底当日）。
+   * - 已修复：>=0 的整数；
+   * - 期末仍未修复：undefined（前端展示"未修复（已持续 N 日）"）。
+   */
+  recoveryDays?: number;
+  /** 自谷底至序列末仍未修复时，谷底到末尾的交易日数 */
+  daysSinceTrough?: number;
+  /**
+   * 历史已修复的最大回撤幅度（正数）：仅统计已回到对应峰值的回撤区间。
+   * 当"当前最大回撤"恰好未修复时，用它补充展示历史上最深且已修复过的回撤。无则为 0。
+   */
+  recoveredMaxDrawdown?: number;
+  /** 历史已修复最大回撤的谷底日期 */
+  recoveredTroughDate?: string;
+  /** 历史已修复最大回撤的修复日期 */
+  recoveredRecoveryDate?: string;
+  /** 历史已修复最大回撤的修复天数（谷底→修复的交易日数） */
+  recoveredRecoveryDays?: number;
+} {
   let peak = -Infinity;
-  let peakDate: string | undefined;
+  let peakIndex = -1;
+  let minSincePeak = Infinity;
+  let minIndex = -1;
+
   let maxDd = 0;
   let ddPeakDate: string | undefined;
   let ddTroughDate: string | undefined;
-  for (const p of curve) {
+  let ddPeakValue = 0;
+  let troughIndex = -1;
+
+  // 历史已修复的最深回撤区间（每当净值创新高，说明上一峰值的回撤区间已修复）
+  let recoveredDd = 0;
+  let recoveredTroughDate: string | undefined;
+  let recoveredRecoveryDate: string | undefined;
+  let recoveredRecoveryDays: number | undefined;
+
+  for (let i = 0; i < curve.length; i++) {
+    const p = curve[i];
     if (!Number.isFinite(p.value)) continue;
-    if (p.value > peak) {
+
+    if (p.value >= peak) {
+      // 净值回到/超过上一峰值 → 上一峰值对应的回撤区间在此刻修复，结算该区间最深回撤
+      if (peakIndex >= 0 && minIndex > peakIndex && peak > 0 && minSincePeak < peak) {
+        const epDd = (peak - minSincePeak) / peak;
+        if (epDd > recoveredDd) {
+          recoveredDd = epDd;
+          recoveredTroughDate = curve[minIndex].date;
+          recoveredRecoveryDate = p.date;
+          recoveredRecoveryDays = i - minIndex;
+        }
+      }
       peak = p.value;
-      peakDate = p.date;
+      peakIndex = i;
+      minSincePeak = p.value;
+      minIndex = i;
+    } else if (p.value < minSincePeak) {
+      minSincePeak = p.value;
+      minIndex = i;
     }
+
     if (peak > 0) {
       const dd = (peak - p.value) / peak;
       if (dd > maxDd) {
         maxDd = dd;
-        ddPeakDate = peakDate;
+        ddPeakDate = peakIndex >= 0 ? curve[peakIndex].date : undefined;
         ddTroughDate = p.date;
+        ddPeakValue = peak;
+        troughIndex = i;
       }
     }
   }
-  return { maxDrawdown: roundRate(maxDd), peakDate: ddPeakDate, troughDate: ddTroughDate };
+
+  // 当前最大回撤的修复：谷底之后净值首次回到（>=）该回撤峰值
+  let recoveryDate: string | undefined;
+  let recoveryDays: number | undefined;
+  let daysSinceTrough: number | undefined;
+  if (troughIndex >= 0) {
+    let recoveryIndex = -1;
+    for (let i = troughIndex + 1; i < curve.length; i++) {
+      if (Number.isFinite(curve[i].value) && curve[i].value >= ddPeakValue) {
+        recoveryIndex = i;
+        break;
+      }
+    }
+    if (recoveryIndex >= 0) {
+      recoveryDate = curve[recoveryIndex].date;
+      recoveryDays = recoveryIndex - troughIndex;
+    } else {
+      // 期末仍未修复
+      daysSinceTrough = curve.length - 1 - troughIndex;
+    }
+  }
+
+  return {
+    maxDrawdown: roundRate(maxDd),
+    peakDate: ddPeakDate,
+    troughDate: ddTroughDate,
+    recoveryDate,
+    recoveryDays,
+    daysSinceTrough,
+    recoveredMaxDrawdown: recoveredDd > 0 ? roundRate(recoveredDd) : 0,
+    recoveredTroughDate,
+    recoveredRecoveryDate,
+    recoveredRecoveryDays,
+  };
 }
 
 /** 总收益率 = (期末 - 初始) / 初始 */

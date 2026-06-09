@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from 'react';
+import { lazy, Suspense, useState, type ReactNode } from 'react';
 import {
   Card,
   Form,
@@ -16,13 +16,14 @@ import {
   Row,
   Col,
   Statistic,
+  Tooltip,
   Alert,
 } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import { loadFundDetails, type FundDetail } from '@/services/fundPickerService';
 import { useFundNames } from '@/hooks/useFundNames';
 import { useIsMobile } from '@/hooks/useIsMobile';
-import { fmtPct, pnlColor } from '@/utils/format';
+import { fmtPct, pnlColor, fmtDrawdown, drawdownColor } from '@/utils/format';
 import { FundCell } from '@/components/FundLabel';
 
 const FundNavChart = lazy(() =>
@@ -92,12 +93,48 @@ export function FundPickerPage() {
     fmt: (v: number) => string;
     better: 'high' | 'low' | 'none';
     color?: boolean;
+    /** 回撤类指标：数值一律用绿色展示 */
+    drawdown?: boolean;
+    /** 自定义单元格渲染（用于"回撤修复天数""历史已修复最大回撤"等非纯数值展示） */
+    renderCell?: (f: FundDetail) => ReactNode;
   }
   const metricRows: MetricRow[] = [
     { key: 'endNav', label: '最新净值', pick: (f) => f.metrics.endNav, fmt: (v) => v.toFixed(4), better: 'none' },
     { key: 'totalReturn', label: '区间收益率', pick: (f) => f.metrics.totalReturn, fmt: (v) => fmtPct(v * 100), better: 'high', color: true },
     { key: 'annualizedReturn', label: '年化收益', pick: (f) => f.metrics.annualizedReturn, fmt: (v) => fmtPct(v * 100), better: 'high', color: true },
-    { key: 'maxDrawdown', label: '最大回撤', pick: (f) => f.metrics.maxDrawdown, fmt: (v) => fmtPct(v * 100), better: 'low' },
+    { key: 'maxDrawdown', label: '最大回撤', pick: (f) => f.metrics.maxDrawdown, fmt: (v) => fmtDrawdown(v), better: 'low', drawdown: true },
+    {
+      key: 'maxDrawdownRecovery',
+      label: '回撤修复天数',
+      pick: (f) => f.metrics.maxDrawdownRecoveryDays ?? Infinity,
+      fmt: () => '',
+      better: 'none',
+      renderCell: (f) =>
+        f.metrics.maxDrawdown <= 0
+          ? '—'
+          : f.metrics.maxDrawdownRecoveryDays !== undefined
+            ? `${f.metrics.maxDrawdownRecoveryDays} 天`
+            : `未修复（${f.metrics.maxDrawdownDaysSinceTrough ?? 0}天）`,
+    },
+    {
+      key: 'recoveredMaxDrawdown',
+      label: '历史已修复最大回撤',
+      pick: (f) => f.metrics.recoveredMaxDrawdown ?? 0,
+      fmt: (v) => fmtDrawdown(v),
+      better: 'none',
+      renderCell: (f) => {
+        // 仅当前回撤未修复且存在历史已修复回撤时展示，否则 —
+        const unrecovered =
+          f.metrics.maxDrawdownRecoveryDays === undefined && f.metrics.maxDrawdown > 0;
+        const rec = f.metrics.recoveredMaxDrawdown ?? 0;
+        if (!unrecovered || rec <= 0) return '—';
+        return (
+          <span style={{ color: drawdownColor(rec) }}>
+            {fmtDrawdown(rec)} / {f.metrics.recoveredMaxDrawdownRecoveryDays}天
+          </span>
+        );
+      },
+    },
     { key: 'annualizedVolatility', label: '年化波动率', pick: (f) => f.metrics.annualizedVolatility, fmt: (v) => fmtPct(v * 100), better: 'low' },
     { key: 'sharpeRatio', label: '夏普比率', pick: (f) => f.metrics.sharpeRatio, fmt: (v) => v.toFixed(2), better: 'high' },
     { key: 'sortinoRatio', label: '索提诺比率', pick: (f) => f.metrics.sortinoRatio, fmt: (v) => v.toFixed(2), better: 'high' },
@@ -120,9 +157,10 @@ export function FundPickerPage() {
       title: <FundCell code={f.code} name={resolve(f.code)} />,
       key: `f_${idx}`,
       render: (_: unknown, row: MetricRow) => {
+        if (row.renderCell) return row.renderCell(f);
         const val = row.pick(f);
         const isBest = row.better !== 'none' && bestByRow.get(row.key) === val && dataFunds.length > 1;
-        const color = row.color ? pnlColor(val) : undefined;
+        const color = row.drawdown ? drawdownColor(val) : row.color ? pnlColor(val) : undefined;
         return (
           <span style={{ fontWeight: isBest ? 700 : 400, color }}>
             {row.fmt(val)}
@@ -255,12 +293,62 @@ export function FundPickerPage() {
                   />
                 </Col>
                 <Col xs={12} md={6}>
-                  <Statistic
-                    title="最大回撤"
-                    value={fmtPct(f.metrics.maxDrawdown * 100)}
-                    valueStyle={{ color: '#cf1322' }}
-                  />
+                  <Tooltip title="回撤为下跌，按负值展示">
+                    <Statistic
+                      title="最大回撤"
+                      value={fmtDrawdown(f.metrics.maxDrawdown)}
+                      valueStyle={{ color: drawdownColor(f.metrics.maxDrawdown) }}
+                    />
+                  </Tooltip>
                 </Col>
+                <Col xs={12} md={6}>
+                  <Tooltip
+                    title={
+                      f.metrics.maxDrawdownRecoveryDays !== undefined
+                        ? `自谷底 ${f.metrics.maxDrawdownTroughDate} 起，经 ${f.metrics.maxDrawdownRecoveryDays} 个交易日于 ${f.metrics.maxDrawdownRecoveryDate} 回到峰值`
+                        : f.metrics.maxDrawdownDaysSinceTrough !== undefined
+                          ? `区间末仍未回到峰值，自谷底 ${f.metrics.maxDrawdownTroughDate} 起已持续 ${f.metrics.maxDrawdownDaysSinceTrough} 个交易日`
+                          : '无回撤'
+                    }
+                  >
+                    <Statistic
+                      title="回撤修复天数"
+                      value={
+                        f.metrics.maxDrawdown <= 0
+                          ? '—'
+                          : f.metrics.maxDrawdownRecoveryDays !== undefined
+                            ? `${f.metrics.maxDrawdownRecoveryDays} 天`
+                            : `未修复（${f.metrics.maxDrawdownDaysSinceTrough ?? 0}天）`
+                      }
+                      valueStyle={
+                        f.metrics.maxDrawdownRecoveryDays === undefined && f.metrics.maxDrawdown > 0
+                          ? { color: '#cf1322' }
+                          : undefined
+                      }
+                    />
+                  </Tooltip>
+                </Col>
+                {f.metrics.maxDrawdownRecoveryDays === undefined &&
+                  f.metrics.maxDrawdown > 0 &&
+                  (f.metrics.recoveredMaxDrawdown ?? 0) > 0 && (
+                    <Col xs={12} md={6}>
+                      <Tooltip
+                        title={`当前最大回撤尚未修复；历史上已修复的最深回撤为 ${fmtDrawdown(
+                          f.metrics.recoveredMaxDrawdown ?? 0,
+                        )}，自谷底 ${f.metrics.recoveredMaxDrawdownTroughDate} 起经 ${
+                          f.metrics.recoveredMaxDrawdownRecoveryDays
+                        } 个交易日于 ${f.metrics.recoveredMaxDrawdownRecoveryDate} 回到峰值`}
+                      >
+                        <Statistic
+                          title="历史已修复最大回撤"
+                          value={`${fmtDrawdown(f.metrics.recoveredMaxDrawdown ?? 0)} / ${
+                            f.metrics.recoveredMaxDrawdownRecoveryDays
+                          }天`}
+                          valueStyle={{ color: drawdownColor(f.metrics.recoveredMaxDrawdown ?? 0) }}
+                        />
+                      </Tooltip>
+                    </Col>
+                  )}
               </Row>
               <div style={{ marginTop: 16 }}>
                 <Typography.Text strong>

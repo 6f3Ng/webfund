@@ -22,8 +22,14 @@ export function BacktestChart({ result, initialCash }: Props) {
   const cost = result.curve.map((p) => p.cost);
   const benchmarkSeries = result.benchmark?.curve.map((p) => p.totalAssets) ?? [];
 
+  const benchLabel = result.benchmark
+    ? result.benchmark.kind === 'STRATEGY'
+      ? `基准(策略${result.benchmark.label ? `:${result.benchmark.label}` : ''})`
+      : '基准(买入持有)'
+    : '基准';
+
   const legend = ['总资产', '持仓市值', '累计净投入', '持仓成本'];
-  if (benchmarkSeries.length) legend.push('基准(买入持有)');
+  if (benchmarkSeries.length) legend.push(benchLabel);
 
   const option = {
     tooltip: {
@@ -81,7 +87,7 @@ export function BacktestChart({ result, initialCash }: Props) {
       ...(benchmarkSeries.length
         ? [
             {
-              name: '基准(买入持有)',
+              name: benchLabel,
               type: 'line',
               data: benchmarkSeries,
               showSymbol: false,

@@ -3,7 +3,7 @@ import {
   Card,
   Form,
   Select,
-  InputNumber,
+  Input,
   DatePicker,
   Button,
   Space,
@@ -29,7 +29,7 @@ import { collectFundCodes, loadNavData, runBacktestInWorker } from '@/services/b
 import { ComparisonPanel } from '@/components/ComparisonPanel';
 import { FundCell } from '@/components/FundLabel';
 import { useFundNames } from '@/hooks/useFundNames';
-import { fmtMoney, fmtPct, pnlColor } from '@/utils/format';
+import { fmtMoney, fmtPct, pnlColor, fmtDrawdown, drawdownColor } from '@/utils/format';
 import type { BacktestResult, BacktestTrade } from '@fund/core';
 
 // ECharts 较重，按需懒加载（仅回测出结果时才加载该 chunk）
@@ -69,7 +69,8 @@ function SingleBacktest() {
   const [form] = Form.useForm();
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<BacktestResult | null>(null);
-  const [initialCash, setInitialCash] = useState(100000);
+  // 期初资金不再由用户输入，改为取回测结果（引擎自动推导所需资金），用于曲线"期初资金"参考线
+  const initialCash = result?.metrics.initialCash ?? 0;
 
   useEffect(() => {
     load();
@@ -98,10 +99,22 @@ function SingleBacktest() {
     const endStr = end.format('YYYY-MM-DD');
     const codes = collectFundCodes(set.strategies);
 
+    // 基准解析（需求 2）：优先选中的策略集 > 输入的基金代码 > 默认首个标的
+    const benchSet =
+      v.benchmarkSetId && v.benchmarkSetId !== set.id
+        ? sets.find((s) => s.id === v.benchmarkSetId && s.strategies.length > 0)
+        : undefined;
+    const benchFund = !benchSet ? (v.benchmarkFund as string | undefined)?.trim() : undefined;
+
+    // 需要拉取净值的全部标的：主策略集 + 基准策略集 + 基准基金
+    const loadCodes = new Set<string>(codes);
+    if (benchSet) collectFundCodes(benchSet.strategies).forEach((c) => loadCodes.add(c));
+    if (benchFund) loadCodes.add(benchFund);
+
     setRunning(true);
     setResult(null);
     try {
-      const navData = await loadNavData(codes, startStr, endStr);
+      const navData = await loadNavData([...loadCodes], startStr, endStr);
       const totalPoints = Object.values(navData).reduce((acc, p) => acc + p.length, 0);
       if (totalPoints === 0) {
         message.error('未获取到该区间的历史净值');
@@ -113,11 +126,15 @@ function SingleBacktest() {
         navData,
         start: startStr,
         end: endStr,
-        initialCash: v.initialCash,
         purchaseFeeRate: settings.defaultPurchaseFeeRate,
-        benchmarkFundCode: v.benchmark || codes[0],
+        ...(benchSet
+          ? {
+              benchmarkStrategies: benchSet.strategies,
+              benchmarkConflictPolicy: benchSet.conflictPolicy,
+              benchmarkLabel: benchSet.name,
+            }
+          : { benchmarkFundCode: benchFund || codes[0] }),
       });
-      setInitialCash(v.initialCash);
       setResult(res);
       message.success('回测完成');
     } catch (e) {
@@ -126,14 +143,6 @@ function SingleBacktest() {
       setRunning(false);
     }
   };
-
-  const fundOptions = (() => {
-    const set = sets.find((s) => s.id === form.getFieldValue('setId'));
-    return collectFundCodes(set?.strategies ?? []).map((c) => ({
-      label: resolveLabel(c),
-      value: c,
-    }));
-  })();
 
   const tradeColumns = [
     { title: '日期', dataIndex: 'date', key: 'date' },
@@ -164,21 +173,38 @@ function SingleBacktest() {
               style={{ minWidth: 180, width: isMobile ? '100%' : undefined }}
               placeholder="选择策略集"
               options={sets.map((s) => ({ label: `${s.name}（${s.strategies.length}）`, value: s.id }))}
-              onChange={() => form.setFieldValue('benchmark', undefined)}
+              onChange={() => {
+                form.setFieldValue('benchmarkSetId', undefined);
+                form.setFieldValue('benchmarkFund', undefined);
+              }}
             />
           </Form.Item>
           <Form.Item name="range" label="区间" rules={[{ required: true, message: '请选择区间' }]}>
             <DatePicker.RangePicker style={{ width: isMobile ? '100%' : undefined }} />
           </Form.Item>
-          <Form.Item name="initialCash" label="初始资金" initialValue={100000} rules={[{ required: true }]}>
-            <InputNumber min={1000} step={10000} style={{ width: isMobile ? '100%' : 140 }} />
-          </Form.Item>
-          <Form.Item name="benchmark" label="基准标的">
+          <Form.Item name="benchmarkSetId" label="基准策略集">
             <Select
-              style={{ minWidth: 120, width: isMobile ? '100%' : undefined }}
-              placeholder="默认首个标的"
+              style={{ minWidth: 160, width: isMobile ? '100%' : undefined }}
+              placeholder="选择一条策略作基准（可选）"
               allowClear
-              options={fundOptions}
+              options={sets
+                .filter((s) => s.id !== form.getFieldValue('setId') && s.strategies.length > 0)
+                .map((s) => ({ label: `${s.name}（${s.strategies.length}）`, value: s.id }))}
+              onChange={(val) => {
+                if (val) form.setFieldValue('benchmarkFund', undefined);
+              }}
+            />
+          </Form.Item>
+          <Form.Item
+            name="benchmarkFund"
+            label="基准基金"
+            tooltip="未选基准策略集时生效；留空则默认首个标的买入持有"
+          >
+            <Input
+              style={{ width: isMobile ? '100%' : 140 }}
+              placeholder="基金代码（可选）"
+              maxLength={6}
+              allowClear
             />
           </Form.Item>
           <Form.Item>
@@ -201,7 +227,9 @@ function SingleBacktest() {
             <Typography.Text type="secondary">资金</Typography.Text>
             <Row gutter={[16, 12]} style={{ marginTop: 8, marginBottom: 8 }}>
               <Col xs={12} md={6}>
-                <Statistic title="期初可用资金" value={fmtMoney(result.metrics.initialCash)} prefix="¥" />
+                <Tooltip title="按策略买卖自动推导的期初所需资金（使期间可用现金不为负）">
+                  <Statistic title="期初所需资金" value={fmtMoney(result.metrics.initialCash)} prefix="¥" />
+                </Tooltip>
               </Col>
               <Col xs={12} md={6}>
                 <Statistic title="累计买入" value={fmtMoney(result.metrics.totalBought)} prefix="¥" />
@@ -210,7 +238,9 @@ function SingleBacktest() {
                 <Statistic title="累计卖出回收" value={fmtMoney(result.metrics.totalSold)} prefix="¥" />
               </Col>
               <Col xs={12} md={6}>
-                <Statistic title="累计净投入" value={fmtMoney(result.metrics.netInvested)} prefix="¥" />
+                <Tooltip title="实际投入成本 = 累计买入 − 累计卖出回收，即真金白银净投入；去掉初始资金限制后作为累计收益率基准">
+                  <Statistic title="实际投入成本" value={fmtMoney(result.metrics.netInvested)} prefix="¥" />
+                </Tooltip>
               </Col>
             </Row>
 
@@ -220,13 +250,21 @@ function SingleBacktest() {
                 <Statistic title="期末总资产" value={fmtMoney(result.metrics.finalAssets)} prefix="¥" />
               </Col>
               <Col xs={12} md={6}>
-                <Statistic title="期末可用现金" value={fmtMoney(result.metrics.finalCash)} prefix="¥" />
+                <Tooltip title="去掉初始资金限制后，可用现金可能为负，表示累计追加投入超过期初资金">
+                  <Statistic title="期末可用现金" value={fmtMoney(result.metrics.finalCash)} prefix="¥" />
+                </Tooltip>
               </Col>
               <Col xs={12} md={6}>
                 <Statistic
-                  title="期末持有资产"
+                  title="期末持有总额"
                   value={fmtMoney(result.metrics.finalHoldingValue)}
                   prefix="¥"
+                />
+              </Col>
+              <Col xs={12} md={6}>
+                <Statistic
+                  title="期末持有份额"
+                  value={result.metrics.finalHoldingShares.toFixed(2)}
                 />
               </Col>
               <Col xs={12} md={6}>
@@ -235,6 +273,22 @@ function SingleBacktest() {
                   value={fmtMoney(result.metrics.finalHoldingCost)}
                   prefix="¥"
                 />
+              </Col>
+              <Col xs={12} md={6}>
+                <Tooltip title="期末成本单价 = 期末持仓成本 / 期末持有份额">
+                  <Statistic
+                    title="期末成本单价"
+                    value={result.metrics.finalCostPrice.toFixed(4)}
+                  />
+                </Tooltip>
+              </Col>
+              <Col xs={12} md={6}>
+                <Tooltip title="期末实际单价 = 期末持有总额 / 期末持有份额（持仓加权市价）">
+                  <Statistic
+                    title="期末实际单价"
+                    value={result.metrics.finalUnitNav.toFixed(4)}
+                  />
+                </Tooltip>
               </Col>
             </Row>
 
@@ -249,11 +303,22 @@ function SingleBacktest() {
                 />
               </Col>
               <Col xs={12} md={6}>
-                <Statistic
-                  title="总收益率"
-                  value={fmtPct(result.metrics.totalReturn * 100)}
-                  valueStyle={{ color: pnlColor(result.metrics.totalReturn) }}
-                />
+                <Tooltip title="累计收益率 = 期末总收益 / 实际投入成本（净投入），以真金白银投入为基准">
+                  <Statistic
+                    title="累计收益率"
+                    value={fmtPct(result.metrics.cumulativeReturn * 100)}
+                    valueStyle={{ color: pnlColor(result.metrics.cumulativeReturn) }}
+                  />
+                </Tooltip>
+              </Col>
+              <Col xs={12} md={6}>
+                <Tooltip title="总收益率 = 期末总收益 / 期初可用资金（旧口径，受闲置现金影响）">
+                  <Statistic
+                    title="总收益率"
+                    value={fmtPct(result.metrics.totalReturn * 100)}
+                    valueStyle={{ color: pnlColor(result.metrics.totalReturn) }}
+                  />
+                </Tooltip>
               </Col>
               <Col xs={12} md={6}>
                 <Statistic
@@ -263,9 +328,9 @@ function SingleBacktest() {
                 />
               </Col>
               <Col xs={12} md={6}>
-                <Tooltip title="持仓浮动盈亏 = 期末持有资产 − 期末持仓成本">
+                <Tooltip title="期末持有收益 = 期末持有总额 − 期末持仓成本">
                   <Statistic
-                    title="持仓浮盈"
+                    title="期末持有收益"
                     value={fmtMoney(result.metrics.holdingProfit)}
                     prefix="¥"
                     valueStyle={{ color: pnlColor(result.metrics.holdingProfit) }}
@@ -273,9 +338,18 @@ function SingleBacktest() {
                 </Tooltip>
               </Col>
               <Col xs={12} md={6}>
+                <Tooltip title="期末持有收益率 = 期末持有收益 / 期末持仓成本（金额口径）">
+                  <Statistic
+                    title="期末持有收益率"
+                    value={fmtPct(result.metrics.holdingProfitRate * 100)}
+                    valueStyle={{ color: pnlColor(result.metrics.holdingProfitRate) }}
+                  />
+                </Tooltip>
+              </Col>
+              <Col xs={12} md={6}>
                 <Tooltip title="时间加权持有收益，剔除现金与资金流入影响">
                   <Statistic
-                    title="持有收益率"
+                    title="持有收益率(时间加权)"
                     value={fmtPct(result.metrics.holdingReturn * 100)}
                     valueStyle={{ color: pnlColor(result.metrics.holdingReturn) }}
                   />
@@ -286,17 +360,17 @@ function SingleBacktest() {
             <Typography.Text type="secondary">风险</Typography.Text>
             <Row gutter={[16, 12]} style={{ marginTop: 8, marginBottom: 8 }}>
               <Col xs={12} md={6}>
-                <Tooltip title="基于总资产曲线（含闲置现金）">
+                <Tooltip title="基于总资产曲线（含闲置现金）；回撤为下跌，按负值展示">
                   <Statistic
                     title="总资产最大回撤"
-                    value={fmtPct(result.metrics.maxDrawdown * 100)}
-                    valueStyle={{ color: '#cf1322' }}
+                    value={fmtDrawdown(result.metrics.maxDrawdown)}
+                    valueStyle={{ color: drawdownColor(result.metrics.maxDrawdown) }}
                   />
                 </Tooltip>
               </Col>
               <Col xs={12} md={6}>
                 <Tooltip
-                  title={`时间加权，仅反映持仓本身回撤，不受闲置现金/定投资金流入稀释${
+                  title={`时间加权，仅反映持仓本身回撤，不受闲置现金/定投资金流入稀释；回撤为下跌按负值展示${
                     result.metrics.maxDrawdownPeakDate
                       ? `；峰值 ${result.metrics.maxDrawdownPeakDate} → 谷底 ${result.metrics.maxDrawdownTroughDate}`
                       : ''
@@ -304,11 +378,60 @@ function SingleBacktest() {
                 >
                   <Statistic
                     title="持有最大回撤"
-                    value={fmtPct(result.metrics.holdingMaxDrawdown * 100)}
-                    valueStyle={{ color: '#cf1322' }}
+                    value={fmtDrawdown(result.metrics.holdingMaxDrawdown)}
+                    valueStyle={{ color: drawdownColor(result.metrics.holdingMaxDrawdown) }}
                   />
                 </Tooltip>
               </Col>
+              <Col xs={12} md={6}>
+                <Tooltip
+                  title={
+                    result.metrics.maxDrawdownRecoveryDays !== undefined
+                      ? `自谷底 ${result.metrics.maxDrawdownTroughDate} 起，经 ${result.metrics.maxDrawdownRecoveryDays} 个交易日于 ${result.metrics.maxDrawdownRecoveryDate} 回到峰值`
+                      : result.metrics.maxDrawdownDaysSinceTrough !== undefined
+                        ? `期末仍未回到峰值，自谷底 ${result.metrics.maxDrawdownTroughDate} 起已持续 ${result.metrics.maxDrawdownDaysSinceTrough} 个交易日`
+                        : '无回撤'
+                  }
+                >
+                  <Statistic
+                    title="回撤修复天数"
+                    value={
+                      result.metrics.holdingMaxDrawdown <= 0
+                        ? '—'
+                        : result.metrics.maxDrawdownRecoveryDays !== undefined
+                          ? `${result.metrics.maxDrawdownRecoveryDays} 天`
+                          : `未修复（${result.metrics.maxDrawdownDaysSinceTrough ?? 0}天）`
+                    }
+                    valueStyle={
+                      result.metrics.maxDrawdownRecoveryDays === undefined &&
+                      result.metrics.holdingMaxDrawdown > 0
+                        ? { color: '#cf1322' }
+                        : undefined
+                    }
+                  />
+                </Tooltip>
+              </Col>
+              {result.metrics.maxDrawdownRecoveryDays === undefined &&
+                result.metrics.holdingMaxDrawdown > 0 &&
+                (result.metrics.recoveredMaxDrawdown ?? 0) > 0 && (
+                  <Col xs={12} md={6}>
+                    <Tooltip
+                      title={`当前最大回撤尚未修复；历史上已修复的最深回撤为 ${fmtDrawdown(
+                        result.metrics.recoveredMaxDrawdown ?? 0,
+                      )}，自谷底 ${result.metrics.recoveredMaxDrawdownTroughDate} 起经 ${
+                        result.metrics.recoveredMaxDrawdownRecoveryDays
+                      } 个交易日于 ${result.metrics.recoveredMaxDrawdownRecoveryDate} 回到峰值`}
+                    >
+                      <Statistic
+                        title="历史已修复最大回撤"
+                        value={`${fmtDrawdown(result.metrics.recoveredMaxDrawdown ?? 0)} / ${
+                          result.metrics.recoveredMaxDrawdownRecoveryDays
+                        }天`}
+                        valueStyle={{ color: drawdownColor(result.metrics.recoveredMaxDrawdown ?? 0) }}
+                      />
+                    </Tooltip>
+                  </Col>
+                )}
               <Col xs={12} md={6}>
                 <Tooltip title="持有指数日收益的年化标准差">
                   <Statistic
@@ -387,10 +510,14 @@ function SingleBacktest() {
                 style={{ marginTop: 12 }}
                 type="info"
                 showIcon
-                message={`基准（${resolveLabel(result.benchmark.fundCode)} 买入持有）：总收益 ${fmtPct(
+                message={`基准（${
+                  result.benchmark.kind === 'STRATEGY'
+                    ? `策略：${result.benchmark.label ?? resolveLabel(result.benchmark.fundCode ?? '')}`
+                    : `${resolveLabel(result.benchmark.fundCode ?? '')} 买入持有`
+                }）：总收益 ${fmtPct(
                   result.benchmark.totalReturn * 100,
-                )} ｜ 年化 ${fmtPct(result.benchmark.annualizedReturn * 100)} ｜ 最大回撤 ${fmtPct(
-                  result.benchmark.maxDrawdown * 100,
+                )} ｜ 年化 ${fmtPct(result.benchmark.annualizedReturn * 100)} ｜ 最大回撤 ${fmtDrawdown(
+                  result.benchmark.maxDrawdown,
                 )} ｜ 策略相对基准超额 ${fmtPct(
                   (result.metrics.totalReturn - result.benchmark.totalReturn) * 100,
                 )}`}

@@ -296,3 +296,148 @@ describe('runBacktest - 指标与边界', () => {
     expect(buy.fee).toBeCloseTo(15, 2);
   });
 });
+
+describe('runBacktest - 去掉初始资金限制 + 重算指标', () => {
+  it('买入超过可用现金时仍成交（现金可为负，视为追加投入）', () => {
+    // 每月定投 ¥5000，但初始资金仅 ¥1000；去掉限制后应照常买入
+    const nav = makeNav('2024-01-01', Array.from({ length: 60 }, (_, i) => 1.0 + i * 0.01));
+    const dca: Strategy = {
+      id: 'd1',
+      name: '月投',
+      templateType: 'DCA',
+      fundCode: '000001',
+      params: { type: 'DCA', period: 'MONTHLY', dayOfPeriod: 1, amount: 5000 },
+      enabled: true,
+    };
+    const result = runBacktest({
+      strategies: [dca],
+      conflictPolicy: DEFAULT_CONFLICT_POLICY,
+      navData: { '000001': nav },
+      start: nav[0].date,
+      end: nav[nav.length - 1].date,
+      initialCash: 1000,
+      purchaseFeeRate: 0,
+    });
+    const buys = result.trades.filter((t) => t.side === 'BUY');
+    expect(buys.length).toBeGreaterThanOrEqual(2); // 跨多个月份均成交
+    // 累计买入远超期初资金，现金为负（追加投入）
+    expect(result.metrics.totalBought).toBeGreaterThan(5000);
+    expect(result.metrics.finalCash).toBeLessThan(0);
+  });
+
+  it('不提供 initialCash 时自动按策略所需资金推导，期间现金不为负', () => {
+    // 每月定投 ¥5000，未提供初始资金；引擎应自动推导期初资金使现金不为负
+    const nav = makeNav('2024-01-01', Array.from({ length: 60 }, (_, i) => 1.0 + i * 0.01));
+    const dca: Strategy = {
+      id: 'd1',
+      name: '月投',
+      templateType: 'DCA',
+      fundCode: '000001',
+      params: { type: 'DCA', period: 'MONTHLY', dayOfPeriod: 1, amount: 5000 },
+      enabled: true,
+    };
+    const result = runBacktest({
+      strategies: [dca],
+      conflictPolicy: DEFAULT_CONFLICT_POLICY,
+      navData: { '000001': nav },
+      start: nav[0].date,
+      end: nav[nav.length - 1].date,
+      // 不提供 initialCash
+      purchaseFeeRate: 0,
+    });
+    // 自动推导的期初资金 = 累计买入（首次平移使最低现金=0）
+    expect(result.metrics.initialCash).toBeGreaterThan(0);
+    expect(result.metrics.initialCash).toBeCloseTo(result.metrics.totalBought, 0);
+    // 期间现金不为负（最低点恰好 0）
+    const minCash = Math.min(...result.curve.map((p) => p.cash));
+    expect(minCash).toBeGreaterThanOrEqual(-1e-6);
+    // 期末现金 = 期初 − 累计买入 ≈ 0（全部投入持仓）
+    expect(result.metrics.finalCash).toBeCloseTo(0, 0);
+  });
+
+  it('期末份额/成本单价/实际单价/累计收益率/持有收益率口径正确', () => {
+    // 首日 ¥10000 满仓买入（净值 1.0 → 10000 份），净值翻倍到 2.0
+    const nav = makeNav('2024-01-01', [1.0, 1.5, 2.0]);
+    const dca: Strategy = {
+      id: 'd1',
+      name: '首日满仓',
+      templateType: 'DCA',
+      fundCode: '000001',
+      params: {
+        type: 'DCA',
+        period: 'MONTHLY',
+        dayOfPeriod: new Date(nav[0].date).getUTCDate(),
+        amount: 10000,
+      },
+      enabled: true,
+    };
+    const m = runBacktest({
+      strategies: [dca],
+      conflictPolicy: DEFAULT_CONFLICT_POLICY,
+      navData: { '000001': nav },
+      start: nav[0].date,
+      end: nav[nav.length - 1].date,
+      initialCash: 10000,
+      purchaseFeeRate: 0,
+    }).metrics;
+    // 期末持有 10000 份
+    expect(m.finalHoldingShares).toBeCloseTo(10000, 0);
+    // 成本单价 = 10000 成本 / 10000 份 = 1.0
+    expect(m.finalCostPrice).toBeCloseTo(1.0, 4);
+    // 实际单价 = 20000 市值 / 10000 份 = 2.0
+    expect(m.finalUnitNav).toBeCloseTo(2.0, 4);
+    // 持有收益率 = 浮盈 10000 / 成本 10000 = 100%
+    expect(m.holdingProfitRate).toBeCloseTo(1.0, 2);
+    // 累计收益率 = 总收益 10000 / 净投入 10000 = 100%
+    expect(m.cumulativeReturn).toBeCloseTo(1.0, 2);
+  });
+});
+
+describe('runBacktest - 基准（策略 / 指定基金 / 默认）', () => {
+  const navA = makeNav('2024-01-01', [1.0, 1.1, 1.2, 1.25, 1.3]);
+  const navB = makeNav('2024-01-01', [1.0, 0.9, 0.8, 0.85, 0.9]);
+
+  it('指定基准基金时按该基金买入持有', () => {
+    const result = runBacktest({
+      strategies: [],
+      conflictPolicy: DEFAULT_CONFLICT_POLICY,
+      navData: { '000001': navA, '000002': navB },
+      start: navA[0].date,
+      end: navA[navA.length - 1].date,
+      initialCash: 10000,
+      purchaseFeeRate: 0,
+      benchmarkFundCode: '000002',
+    });
+    expect(result.benchmark?.kind).toBe('BUY_HOLD');
+    expect(result.benchmark?.fundCode).toBe('000002');
+    // 000002 净值 1.0 → 0.9，收益 -10%
+    expect(result.benchmark?.totalReturn).toBeCloseTo(-0.1, 4);
+  });
+
+  it('提供 benchmarkStrategies 时按策略回测作为基准（优先于基金代码）', () => {
+    const benchDca: Strategy = {
+      id: 'b1',
+      name: '基准定投',
+      templateType: 'DCA',
+      fundCode: '000001',
+      params: { type: 'DCA', period: 'MONTHLY', dayOfPeriod: new Date(navA[0].date).getUTCDate(), amount: 5000 },
+      enabled: true,
+    };
+    const result = runBacktest({
+      strategies: [],
+      conflictPolicy: DEFAULT_CONFLICT_POLICY,
+      navData: { '000001': navA },
+      start: navA[0].date,
+      end: navA[navA.length - 1].date,
+      initialCash: 10000,
+      purchaseFeeRate: 0,
+      benchmarkFundCode: '000001', // 应被 benchmarkStrategies 覆盖
+      benchmarkStrategies: [benchDca],
+      benchmarkLabel: '基准策略集',
+    });
+    expect(result.benchmark?.kind).toBe('STRATEGY');
+    expect(result.benchmark?.label).toBe('基准策略集');
+    // 基准策略首日投 5000 买入持有，净值 1.0→1.3，持有部分 +30%
+    expect(result.benchmark?.totalReturn).toBeGreaterThan(0);
+  });
+});
