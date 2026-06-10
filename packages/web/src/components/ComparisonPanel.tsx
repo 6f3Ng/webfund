@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from 'react';
+import { lazy, Suspense, useState, type ReactNode } from 'react';
 import {
   Card,
   Form,
@@ -38,22 +38,97 @@ interface MetricRow {
   fmt: (v: number) => string;
   /** 'high' = 越大越优，'low' = 越小越优，'none' = 不高亮 */
   better: 'high' | 'low' | 'none';
+  /** 着色规则：'pnl' = 红涨绿跌，'drawdown' = 回撤绿色，省略 = 不着色 */
+  color?: 'pnl' | 'drawdown';
+  /** 自定义单元格（用于非纯数值指标，如回撤修复天数 / 交易次数明细），提供时优先于 fmt */
+  renderCell?: (r: BacktestResult) => ReactNode;
 }
 
+/**
+ * 指标行定义，覆盖单策略回测可见的全部指标（需求 1），分组顺序与单策略回测一致：
+ * 资金 / 期末状态 / 收益 / 风险 / 风险调整收益 / 交易。
+ */
 const METRIC_ROWS: MetricRow[] = [
+  // —— 资金 ——
+  { key: 'initialCash', label: '期初所需资金', pick: (r) => r.metrics.initialCash, fmt: (v) => `¥${fmtMoney(v)}`, better: 'none' },
+  { key: 'totalBought', label: '累计买入', pick: (r) => r.metrics.totalBought, fmt: (v) => `¥${fmtMoney(v)}`, better: 'none' },
+  { key: 'totalSold', label: '累计卖出回收', pick: (r) => r.metrics.totalSold, fmt: (v) => `¥${fmtMoney(v)}`, better: 'none' },
+  { key: 'netInvested', label: '实际投入成本', pick: (r) => r.metrics.netInvested, fmt: (v) => `¥${fmtMoney(v)}`, better: 'none' },
+  // —— 期末状态 ——
   { key: 'finalAssets', label: '期末总资产', pick: (r) => r.metrics.finalAssets, fmt: (v) => `¥${fmtMoney(v)}`, better: 'high' },
-  { key: 'totalReturn', label: '总收益率', pick: (r) => r.metrics.totalReturn, fmt: (v) => fmtPct(v * 100), better: 'high' },
-  { key: 'annualizedReturn', label: '年化收益', pick: (r) => r.metrics.annualizedReturn, fmt: (v) => fmtPct(v * 100), better: 'high' },
-  { key: 'holdingReturn', label: '持有收益率', pick: (r) => r.metrics.holdingReturn, fmt: (v) => fmtPct(v * 100), better: 'high' },
-  { key: 'holdingMaxDrawdown', label: '持有最大回撤', pick: (r) => r.metrics.holdingMaxDrawdown, fmt: (v) => fmtDrawdown(v), better: 'low' },
+  { key: 'finalCash', label: '期末可用现金', pick: (r) => r.metrics.finalCash, fmt: (v) => `¥${fmtMoney(v)}`, better: 'none' },
+  { key: 'finalHoldingValue', label: '期末持有总额', pick: (r) => r.metrics.finalHoldingValue, fmt: (v) => `¥${fmtMoney(v)}`, better: 'none' },
+  { key: 'finalHoldingShares', label: '期末持有份额', pick: (r) => r.metrics.finalHoldingShares, fmt: (v) => v.toFixed(2), better: 'none' },
+  { key: 'finalHoldingCost', label: '期末持仓成本', pick: (r) => r.metrics.finalHoldingCost, fmt: (v) => `¥${fmtMoney(v)}`, better: 'none' },
+  { key: 'finalCostPrice', label: '期末成本单价', pick: (r) => r.metrics.finalCostPrice, fmt: (v) => v.toFixed(4), better: 'none' },
+  { key: 'finalUnitNav', label: '期末实际单价', pick: (r) => r.metrics.finalUnitNav, fmt: (v) => v.toFixed(4), better: 'none' },
+  // —— 收益 ——
+  { key: 'totalProfit', label: '期末总收益', pick: (r) => r.metrics.totalProfit, fmt: (v) => `¥${fmtMoney(v)}`, better: 'high', color: 'pnl' },
+  { key: 'cumulativeReturn', label: '累计收益率', pick: (r) => r.metrics.cumulativeReturn, fmt: (v) => fmtPct(v * 100), better: 'high', color: 'pnl' },
+  { key: 'totalReturn', label: '总收益率', pick: (r) => r.metrics.totalReturn, fmt: (v) => fmtPct(v * 100), better: 'high', color: 'pnl' },
+  { key: 'annualizedReturn', label: '年化收益', pick: (r) => r.metrics.annualizedReturn, fmt: (v) => fmtPct(v * 100), better: 'high', color: 'pnl' },
+  { key: 'holdingProfit', label: '期末持有收益', pick: (r) => r.metrics.holdingProfit, fmt: (v) => `¥${fmtMoney(v)}`, better: 'high', color: 'pnl' },
+  { key: 'holdingProfitRate', label: '期末持有收益率', pick: (r) => r.metrics.holdingProfitRate, fmt: (v) => fmtPct(v * 100), better: 'high', color: 'pnl' },
+  { key: 'holdingReturn', label: '持有收益率(时间加权)', pick: (r) => r.metrics.holdingReturn, fmt: (v) => fmtPct(v * 100), better: 'high', color: 'pnl' },
+  // —— 风险 ——
+  { key: 'maxDrawdown', label: '总资产最大回撤', pick: (r) => r.metrics.maxDrawdown, fmt: (v) => fmtDrawdown(v), better: 'low', color: 'drawdown' },
+  { key: 'holdingMaxDrawdown', label: '持有最大回撤', pick: (r) => r.metrics.holdingMaxDrawdown, fmt: (v) => fmtDrawdown(v), better: 'low', color: 'drawdown' },
+  {
+    key: 'maxDrawdownRecovery',
+    label: '回撤修复天数',
+    pick: (r) => r.metrics.maxDrawdownRecoveryDays ?? -1,
+    fmt: () => '',
+    better: 'none',
+    renderCell: (r) => {
+      const m = r.metrics;
+      if (m.holdingMaxDrawdown <= 0) return '—';
+      if (m.maxDrawdownRecoveryDays !== undefined) return `${m.maxDrawdownRecoveryDays} 天`;
+      return (
+        <span style={{ color: '#cf1322' }}>未修复（{m.maxDrawdownDaysSinceTrough ?? 0}天）</span>
+      );
+    },
+  },
+  {
+    key: 'recoveredMaxDrawdown',
+    label: '历史已修复最大回撤',
+    pick: (r) => r.metrics.recoveredMaxDrawdown ?? 0,
+    fmt: () => '',
+    better: 'none',
+    renderCell: (r) => {
+      const m = r.metrics;
+      if (
+        m.maxDrawdownRecoveryDays === undefined &&
+        m.holdingMaxDrawdown > 0 &&
+        (m.recoveredMaxDrawdown ?? 0) > 0
+      ) {
+        return (
+          <span style={{ color: drawdownColor() }}>
+            {`${fmtDrawdown(m.recoveredMaxDrawdown ?? 0)} / ${m.recoveredMaxDrawdownRecoveryDays}天`}
+          </span>
+        );
+      }
+      return '—';
+    },
+  },
   { key: 'annualizedVolatility', label: '年化波动率', pick: (r) => r.metrics.annualizedVolatility, fmt: (v) => fmtPct(v * 100), better: 'low' },
-  { key: 'sharpeRatio', label: '夏普比率', pick: (r) => r.metrics.sharpeRatio, fmt: (v) => v.toFixed(2), better: 'high' },
-  { key: 'sortinoRatio', label: '索提诺比率', pick: (r) => r.metrics.sortinoRatio, fmt: (v) => v.toFixed(2), better: 'high' },
-  { key: 'calmarRatio', label: '卡玛比率', pick: (r) => r.metrics.calmarRatio, fmt: (v) => v.toFixed(2), better: 'high' },
   { key: 'winningDaysRatio', label: '盈利日占比', pick: (r) => r.metrics.winningDaysRatio, fmt: (v) => fmtPct(v * 100), better: 'high' },
-  { key: 'netInvested', label: '累计净投入', pick: (r) => r.metrics.netInvested, fmt: (v) => `¥${fmtMoney(v)}`, better: 'none' },
+  // —— 风险调整收益 ——
+  { key: 'sharpeRatio', label: '夏普比率', pick: (r) => r.metrics.sharpeRatio, fmt: (v) => v.toFixed(2), better: 'high', color: 'pnl' },
+  { key: 'sortinoRatio', label: '索提诺比率', pick: (r) => r.metrics.sortinoRatio, fmt: (v) => v.toFixed(2), better: 'high', color: 'pnl' },
+  { key: 'calmarRatio', label: '卡玛比率', pick: (r) => r.metrics.calmarRatio, fmt: (v) => v.toFixed(2), better: 'high', color: 'pnl' },
+  { key: 'holdingAnnualizedReturn', label: '持有年化收益', pick: (r) => r.metrics.holdingAnnualizedReturn, fmt: (v) => fmtPct(v * 100), better: 'high', color: 'pnl' },
+  // —— 交易 ——
+  {
+    key: 'tradeCount',
+    label: '交易次数',
+    pick: (r) => r.metrics.tradeCount,
+    fmt: (v) => String(v),
+    better: 'none',
+    renderCell: (r) =>
+      `${r.metrics.tradeCount}（买${r.metrics.buyCount}/卖${r.metrics.sellCount}）`,
+  },
   { key: 'totalFee', label: '累计费用', pick: (r) => r.metrics.totalFee, fmt: (v) => `¥${fmtMoney(v)}`, better: 'low' },
-  { key: 'tradeCount', label: '交易次数', pick: (r) => r.metrics.tradeCount, fmt: (v) => String(v), better: 'none' },
+  { key: 'tradingDays', label: '回测交易日', pick: (r) => r.metrics.tradingDays, fmt: (v) => `${v} 天`, better: 'none' },
 ];
 
 export function ComparisonPanel({ sets, purchaseFeeRate }: Props) {
@@ -156,15 +231,11 @@ export function ComparisonPanel({ sets, purchaseFeeRate }: Props) {
       title: it.name,
       key: `set_${idx}`,
       render: (_: unknown, row: MetricRow) => {
+        if (row.renderCell) return row.renderCell(it.result);
         const val = row.pick(it.result);
         const isBest = row.better !== 'none' && bestByRow.get(row.key) === val && items.length > 1;
-        const colorRows = new Set(['totalReturn', 'annualizedReturn', 'holdingReturn']);
         const color =
-          row.key === 'holdingMaxDrawdown'
-            ? drawdownColor(val)
-            : colorRows.has(row.key)
-              ? pnlColor(val)
-              : undefined;
+          row.color === 'drawdown' ? drawdownColor(val) : row.color === 'pnl' ? pnlColor(val) : undefined;
         return (
           <span style={{ fontWeight: isBest ? 700 : 400, color }}>
             {row.fmt(val)}

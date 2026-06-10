@@ -34,6 +34,8 @@ interface StrategyState {
 
   /** 复制一个策略集为副本（新 id + 名称追加"(副本)"） */
   duplicateSet: (id: string) => StrategySet | null;
+  /** 将多个策略集合并为一个新策略集（策略全部并入，重新分配策略 id） */
+  mergeSets: (ids: string[], name: string) => StrategySet | null;
   /** 批量删除策略集 */
   removeSets: (ids: string[]) => void;
 
@@ -131,6 +133,24 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
     repo.save(copy);
     set({ sets: [...get().sets, copy], currentId: copy.id });
     return copy;
+  },
+
+  mergeSets: (ids, name) => {
+    // 收集来源集合（按选择顺序，过滤已不存在的）
+    const sources = ids.map((id) => repo.get(id)).filter((s): s is StrategySet => s !== null);
+    if (sources.length < 2) return null;
+
+    // 新建空集合，并入所有来源策略；重新分配策略 id 避免跨集合 id 冲突
+    const merged = createStrategySet({ name });
+    merged.strategies = sources.flatMap((s) =>
+      s.strategies.map((st) => ({ ...st, id: generateId('st') })),
+    );
+    // 冲突归并策略沿用第一个来源集合
+    merged.conflictPolicy = { ...sources[0].conflictPolicy };
+
+    repo.save(merged);
+    set({ sets: [...get().sets, merged], currentId: merged.id });
+    return merged;
   },
 
   removeSets: (ids) => {

@@ -100,10 +100,10 @@ function SingleBacktest() {
     const codes = collectFundCodes(set.strategies);
 
     // 基准解析（需求 2）：优先选中的策略集 > 输入的基金代码 > 默认首个标的
-    const benchSet =
-      v.benchmarkSetId && v.benchmarkSetId !== set.id
-        ? sets.find((s) => s.id === v.benchmarkSetId && s.strategies.length > 0)
-        : undefined;
+    // 允许基准策略集与回测策略集相同（用户可对比同一策略在不同基准口径下的表现）
+    const benchSet = v.benchmarkSetId
+      ? sets.find((s) => s.id === v.benchmarkSetId && s.strategies.length > 0)
+      : undefined;
     const benchFund = !benchSet ? (v.benchmarkFund as string | undefined)?.trim() : undefined;
 
     // 需要拉取净值的全部标的：主策略集 + 基准策略集 + 基准基金
@@ -188,7 +188,7 @@ function SingleBacktest() {
               placeholder="选择一条策略作基准（可选）"
               allowClear
               options={sets
-                .filter((s) => s.id !== form.getFieldValue('setId') && s.strategies.length > 0)
+                .filter((s) => s.strategies.length > 0)
                 .map((s) => ({ label: `${s.name}（${s.strategies.length}）`, value: s.id }))}
               onChange={(val) => {
                 if (val) form.setFieldValue('benchmarkFund', undefined);

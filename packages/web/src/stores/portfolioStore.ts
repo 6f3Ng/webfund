@@ -53,6 +53,36 @@ export function hasInFlightState(pf: Portfolio): boolean {
 /** UI 是否允许编辑（语义取反，便于阅读），供 store 与 PortfoliosPage 共用。 */
 export const canEdit = (pf: Portfolio): boolean => !hasInFlightState(pf);
 
+/**
+ * 将多个持仓集合的持仓按基金代码合并为 `InitialPosition[]`（纯函数，便于单测）。
+ *
+ * - 同基金：份额相加、成本相加，成本单价 = 合并成本 / 合并份额（加权平均）；
+ * - 买入日期取各 lot 中最早者（用于赎回费持有天数，更保守）；
+ * - 份额为 0 的基金忽略。
+ */
+export function mergePortfolioPositions(portfolios: Portfolio[]): InitialPosition[] {
+  const map = new Map<string, { shares: number; cost: number; acquiredDate?: string }>();
+  for (const pf of portfolios) {
+    for (const p of pf.positions) {
+      if (p.shares <= 0) continue;
+      const cur = map.get(p.fundCode) ?? { shares: 0, cost: 0, acquiredDate: undefined };
+      cur.shares += p.shares;
+      cur.cost += p.cost;
+      const earliest = p.lots.map((l) => l.acquiredDate).sort()[0];
+      if (earliest && (cur.acquiredDate === undefined || earliest < cur.acquiredDate)) {
+        cur.acquiredDate = earliest;
+      }
+      map.set(p.fundCode, cur);
+    }
+  }
+  return [...map.entries()].map(([fundCode, v]) => ({
+    fundCode,
+    shares: v.shares,
+    costPrice: v.shares > 0 ? v.cost / v.shares : 0,
+    acquiredDate: v.acquiredDate,
+  }));
+}
+
 interface PortfolioState {
   portfolios: Portfolio[];
   currentId: string | null;
@@ -71,6 +101,8 @@ interface PortfolioState {
   remove: (id: string) => void;
   /** 复制一个持仓集合为副本（新 id + 名称追加"(副本)"） */
   duplicate: (id: string) => Portfolio | null;
+  /** 将多个持仓集合合并为一个新集合（现金相加、同基金持仓按份额合并、成本加权） */
+  merge: (ids: string[], name: string) => Portfolio;
   /** 批量删除持仓集合 */
   removeMany: (ids: string[]) => void;
 
@@ -209,6 +241,31 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
       (code) => prefetchFundInfo(code),
     );
     return copy;
+  },
+
+  merge: (ids, name) => {
+    // 收集来源集合（按选择顺序，过滤已不存在的）
+    const sources = ids.map((id) => repo.get(id)).filter((p): p is Portfolio => p !== null);
+    if (sources.length < 2) throw new Error('请选择至少两个持仓集合');
+
+    // 在途守卫：合并复用 createPortfolio 重建（清空流水/在途），故任一来源存在在途交易时拒绝
+    for (const pf of sources) {
+      if (hasInFlightState(pf)) throw new Error(`「${pf.name}」存在在途交易，暂不可合并`);
+    }
+
+    // 现金相加，持仓按基金合并（成本加权）；复用工厂以与新建/编辑一致口径重算收益基准
+    const initialCash = sources.reduce((acc, pf) => acc + pf.cash, 0);
+    const positions = mergePortfolioPositions(sources);
+    const merged = createPortfolio({ name, initialCash, positions });
+
+    repo.save(merged);
+    set({ portfolios: [...get().portfolios, merged], currentId: merged.id });
+    // 异步补全持仓名称
+    void mapRequests(
+      merged.positions.map((p) => p.fundCode),
+      (code) => prefetchFundInfo(code),
+    );
+    return merged;
   },
 
   removeMany: (ids) => {

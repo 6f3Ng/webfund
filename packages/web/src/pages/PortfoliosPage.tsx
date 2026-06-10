@@ -21,7 +21,7 @@ import type { Portfolio } from '@fund/core';
 
 export function PortfoliosPage() {
   const { message } = App.useApp();
-  const { portfolios, load, create, rename, edit, remove, duplicate, removeMany, exportCurrent, setCurrent, importFromString } =
+  const { portfolios, load, create, rename, edit, remove, duplicate, removeMany, merge, exportCurrent, setCurrent, importFromString } =
     usePortfolioStore();
 
   const [createForm] = Form.useForm();
@@ -36,6 +36,9 @@ export function PortfoliosPage() {
   const [editForm] = Form.useForm();
   // 批量删除选择（需求 5）
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  // 合并集合
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [mergeName, setMergeName] = useState('');
 
   useEffect(() => {
     load();
@@ -128,6 +131,26 @@ export function PortfoliosPage() {
     setSelectedIds([]);
   };
 
+  // 选中集合是否存在在途交易（合并复用工厂重建会清空流水/在途，故有在途时禁止合并）
+  const selectedHasInFlight = portfolios.some(
+    (p) => selectedIds.includes(p.id) && hasInFlightState(p),
+  );
+
+  const submitMerge = () => {
+    const name = mergeName.trim();
+    if (!name) return message.warning('请输入合并后集合名称');
+    if (selectedIds.length < 2) return message.warning('请选择至少两个集合合并');
+    try {
+      const merged = merge(selectedIds, name);
+      message.success(`已合并为：${merged.name}（${merged.positions.length} 只基金）`);
+      setMergeOpen(false);
+      setMergeName('');
+      setSelectedIds([]);
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '合并失败');
+    }
+  };
+
   const columns = [
     { title: '名称', dataIndex: 'name', key: 'name' },
     { title: '初始资金', dataIndex: 'initialCash', key: 'initialCash', render: fmtMoney },
@@ -198,6 +221,24 @@ export function PortfoliosPage() {
       {selectedIds.length > 0 && (
         <Space wrap style={{ marginBottom: 12 }}>
           <Typography.Text type="secondary">已选 {selectedIds.length} 个集合</Typography.Text>
+          <Tooltip
+            title={
+              selectedHasInFlight
+                ? '选中的集合存在在途交易（待确认订单/在途资金/在途份额），暂不可合并'
+                : ''
+            }
+          >
+            <Button
+              size="small"
+              disabled={selectedIds.length < 2 || selectedHasInFlight}
+              onClick={() => {
+                setMergeName('合并集合');
+                setMergeOpen(true);
+              }}
+            >
+              合并为新集合（{selectedIds.length}）
+            </Button>
+          </Tooltip>
           <Popconfirm
             title={`确认删除选中的 ${selectedIds.length} 个集合？`}
             onConfirm={handleBatchDelete}
@@ -292,6 +333,25 @@ export function PortfoliosPage() {
         ]}
       >
         <Input.TextArea rows={6} value={exportText} readOnly />
+      </Modal>
+
+      <Modal
+        title="合并持仓集合"
+        open={mergeOpen}
+        onOk={submitMerge}
+        onCancel={() => setMergeOpen(false)}
+        okText="合并"
+      >
+        <Typography.Paragraph type="secondary">
+          将选中的 {selectedIds.length} 个集合合并为一个新集合：可用现金相加，同一基金的持仓按份额合并、成本加权平均；
+          收益基准 = 合并后现金 + 持仓成本之和。来源集合保留不变。
+        </Typography.Paragraph>
+        <Input
+          placeholder="合并后集合名称"
+          value={mergeName}
+          onChange={(e) => setMergeName(e.target.value)}
+          onPressEnter={submitMerge}
+        />
       </Modal>
 
       <Modal title="重命名" open={!!renaming} onOk={handleRename} onCancel={() => setRenaming(null)} destroyOnHidden>

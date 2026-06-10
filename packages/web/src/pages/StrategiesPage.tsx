@@ -90,6 +90,7 @@ export function StrategiesPage() {
     updateStrategiesFundCode,
     duplicateSet,
     removeSets,
+    mergeSets,
     exportSet,
     importFromString,
   } = useStrategyStore();
@@ -112,6 +113,9 @@ export function StrategiesPage() {
   const [batchFundCode, setBatchFundCode] = useState('');
   // 策略集批量选择（需求 5）
   const [selectedSetIds, setSelectedSetIds] = useState<string[]>([]);
+  // 策略集合并
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [mergeName, setMergeName] = useState('');
 
   useEffect(() => {
     load();
@@ -169,6 +173,19 @@ export function StrategiesPage() {
     if (selectedSetIds.length === 0) return;
     removeSets(selectedSetIds);
     message.success(`已删除 ${selectedSetIds.length} 个策略集`);
+    setSelectedSetIds([]);
+  };
+
+  const submitMerge = () => {
+    const name = mergeName.trim();
+    if (!name) return message.warning('请输入合并后策略集名称');
+    if (selectedSetIds.length < 2) return message.warning('请选择至少两个策略集合并');
+    if (sets.some((s) => s.name === name)) return message.warning('已存在同名策略集');
+    const merged = mergeSets(selectedSetIds, name);
+    if (!merged) return message.error('合并失败');
+    message.success(`已合并为：${merged.name}（${merged.strategies.length} 条策略）`);
+    setMergeOpen(false);
+    setMergeName('');
     setSelectedSetIds([]);
   };
 
@@ -280,7 +297,7 @@ export function StrategiesPage() {
                   mode="multiple"
                   allowClear
                   style={{ minWidth: 280 }}
-                  placeholder="选择要批量删除的策略集"
+                  placeholder="选择要批量删除/合并的策略集"
                   maxTagCount="responsive"
                   value={selectedSetIds}
                   onChange={setSelectedSetIds}
@@ -289,6 +306,15 @@ export function StrategiesPage() {
                     value: s.id,
                   }))}
                 />
+                <Button
+                  disabled={selectedSetIds.length < 2}
+                  onClick={() => {
+                    setMergeName('合并策略集');
+                    setMergeOpen(true);
+                  }}
+                >
+                  合并为新策略集（{selectedSetIds.length}）
+                </Button>
                 <Popconfirm
                   title={`确认删除选中的 ${selectedSetIds.length} 个策略集？`}
                   onConfirm={handleBatchDeleteSets}
@@ -382,6 +408,25 @@ export function StrategiesPage() {
           value={renameName}
           onChange={(e) => setRenameName(e.target.value)}
           onPressEnter={submitRename}
+        />
+      </Modal>
+
+      {/* 合并策略集 */}
+      <Modal
+        title="合并策略集"
+        open={mergeOpen}
+        okText="合并"
+        onOk={submitMerge}
+        onCancel={() => setMergeOpen(false)}
+      >
+        <Typography.Paragraph type="secondary">
+          将选中的 {selectedSetIds.length} 个策略集的全部策略并入一个新策略集（来源集合保留不变）。
+        </Typography.Paragraph>
+        <Input
+          placeholder="合并后策略集名称"
+          value={mergeName}
+          onChange={(e) => setMergeName(e.target.value)}
+          onPressEnter={submitMerge}
         />
       </Modal>
 
