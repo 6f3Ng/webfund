@@ -29,6 +29,10 @@ export interface AppSettings {
   defaultPurchaseFeeRate: number;
   /** C 类基金申购费率（通常为 0，改收销售服务费），默认 0 */
   defaultPurchaseFeeRateC: number;
+  /** 默认赎回费率（A 类基金），默认 0.005 */
+  defaultRedeemFeeRate: number;
+  /** C 类基金赎回费率，默认 0.005 */
+  defaultRedeemFeeRateC: number;
   /**
    * 多基金的 /api/history、/api/fund-info 请求是否顺序调用（一次一只）。
    * true=顺序（默认，规避第三方接口 429 限流）；false=并发（更快，可能触发限流）。
@@ -42,6 +46,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   refreshIntervalSec: 60,
   defaultPurchaseFeeRate: 0.015,
   defaultPurchaseFeeRateC: 0,
+  defaultRedeemFeeRate: 0.005,
+  defaultRedeemFeeRateC: 0.005,
   sequentialRequests: true,
 };
 

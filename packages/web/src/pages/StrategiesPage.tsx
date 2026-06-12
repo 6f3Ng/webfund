@@ -36,6 +36,21 @@ const TEMPLATE_LABEL: Record<string, string> = {
   GRID: '网格',
 };
 
+/**
+ * 阈值卖出/智能阈值卖出的卖出量文案（按 sellMode）。
+ * 默认（含旧数据无 sellMode）按金额展示。
+ */
+function describeSellQty(
+  sellMode: 'AMOUNT' | 'SHARES' | 'RATIO' | undefined,
+  amount: number,
+  shares?: number,
+  ratio?: number,
+): string {
+  if (sellMode === 'SHARES') return `${shares ?? 0}份`;
+  if (sellMode === 'RATIO') return `${((ratio ?? 0) * 100).toFixed(0)}%仓位`;
+  return `¥${amount}`;
+}
+
 function describeParams(s: Strategy): string {
   const p = s.params;
   const periodText = (period: 'DAILY' | 'WEEKLY' | 'MONTHLY') =>
@@ -58,9 +73,9 @@ function describeParams(s: Strategy): string {
     case 'SMART_THRESHOLD_BUY_CHANGE':
       return `近${p.window}日跌${(p.dropPct * 100).toFixed(1)}%起 基准买¥${p.baseAmount}，每${(p.stepPct * 100).toFixed(0)}%加码${(p.adjustPct * 100).toFixed(0)}%（×${p.minFactor}~${p.maxFactor}）`;
     case 'THRESHOLD_SELL':
-      return `近${p.window}日涨${(p.risePct * 100).toFixed(1)}% 卖 ¥${p.amount}`;
+      return `近${p.window}日涨${(p.risePct * 100).toFixed(1)}% 卖 ${describeSellQty(p.sellMode, p.amount, p.sellShares, p.sellRatio)}`;
     case 'SMART_THRESHOLD_SELL_CHANGE':
-      return `近${p.window}日涨${(p.risePct * 100).toFixed(1)}%起 基准卖¥${p.baseAmount}，每${(p.stepPct * 100).toFixed(0)}%加码${(p.adjustPct * 100).toFixed(0)}%（×${p.minFactor}~${p.maxFactor}）`;
+      return `近${p.window}日涨${(p.risePct * 100).toFixed(1)}%起 基准卖${describeSellQty(p.sellMode, p.baseAmount, p.baseShares, p.baseRatio)}，每${(p.stepPct * 100).toFixed(0)}%加码${(p.adjustPct * 100).toFixed(0)}%（×${p.minFactor}~${p.maxFactor}）`;
     case 'TAKE_PROFIT':
       return `+${(p.gainPct * 100).toFixed(0)}% 卖${(p.sellRatio * 100).toFixed(0)}%`;
     case 'SMART_TAKE_PROFIT':

@@ -15,9 +15,9 @@ import type {
   GridParams,
 } from '../domain';
 import { dayOfWeek } from '../utils/date';
-import { clamp } from '../utils/decimal';
+import { clamp, roundShares } from '../utils/decimal';
 import type { DayContext, StrategyAction, StrategyRuntimeState } from './types';
-import type { DcaPeriod } from '../domain';
+import type { DcaPeriod, ThresholdSellMode } from '../domain';
 
 /**
  * 周期标签：用于触发原因文案。
@@ -345,7 +345,7 @@ function evalSmartThresholdBuyChange(
   ];
 }
 
-/** 阈值卖出：近 window 个交易日涨幅达到 risePct 时卖出 amount 金额 */
+/** 阈值卖出：近 window 个交易日涨幅达到 risePct 时按 sellMode 指定方式卖出 */
 function evalThresholdSell(
   s: Strategy,
   p: ThresholdSellParams,
@@ -359,28 +359,62 @@ function evalThresholdSell(
   if (today === undefined || past === undefined || past === 0) return [];
 
   const rise = (today - past) / past; // 正数表示上涨
-  if (rise >= p.risePct) {
-    // 避免连续重复触发：同一窗口内每 window 天最多卖一次
-    if (state.lastSellDayIndex !== undefined && ctx.dayIndex - state.lastSellDayIndex < p.window) {
-      return [];
-    }
-    state.lastSellDayIndex = ctx.dayIndex;
-    return [
-      {
-        strategyId: s.id,
-        fundCode: s.fundCode,
-        side: 'SELL',
-        amount: p.amount,
-        reason: `近${p.window}日涨${(rise * 100).toFixed(2)}%触发卖出¥${p.amount}`,
-      },
-    ];
+  if (rise < p.risePct) return [];
+  // 避免连续重复触发：同一窗口内每 window 天最多卖一次
+  if (state.lastSellDayIndex !== undefined && ctx.dayIndex - state.lastSellDayIndex < p.window) {
+    return [];
   }
-  return [];
+
+  const qty = thresholdSellQuantity(p);
+  if (!qty) return [];
+  state.lastSellDayIndex = ctx.dayIndex;
+  return [
+    {
+      strategyId: s.id,
+      fundCode: s.fundCode,
+      side: 'SELL',
+      ...qty.field,
+      reason: `近${p.window}日涨${(rise * 100).toFixed(2)}%触发卖出${qty.label}`,
+    },
+  ];
+}
+
+/**
+ * 解析阈值卖出/智能阈值卖出的卖出量字段（按 sellMode）。
+ * 返回写入 StrategyAction 的字段（amount/shares/ratio 之一）与展示文案；量为非正时返回 undefined。
+ * `scale` 为智能模式的倍数（默认 1）。
+ */
+function resolveSellQuantity(
+  mode: ThresholdSellMode | undefined,
+  amount: number,
+  shares: number,
+  ratio: number,
+  scale = 1,
+): { field: Pick<StrategyAction, 'amount' | 'shares' | 'ratio'>; label: string } | undefined {
+  const m = mode ?? 'AMOUNT';
+  if (m === 'SHARES') {
+    const v = roundShares(shares * scale);
+    if (v <= 0) return undefined;
+    return { field: { shares: v }, label: `${v.toFixed(2)}份` };
+  }
+  if (m === 'RATIO') {
+    const v = clamp(ratio * scale, 0, 1);
+    if (v <= 0) return undefined;
+    return { field: { ratio: v }, label: `${(v * 100).toFixed(0)}%仓位` };
+  }
+  const v = Math.round(amount * scale);
+  if (v <= 0) return undefined;
+  return { field: { amount: v }, label: `¥${v}` };
+}
+
+/** 阈值卖出（固定量）的卖出字段与文案 */
+function thresholdSellQuantity(p: ThresholdSellParams) {
+  return resolveSellQuantity(p.sellMode, p.amount, p.sellShares ?? 0, p.sellRatio ?? 0);
 }
 
 /**
  * 智能阈值卖出-涨跌幅模式：近 window 日涨幅达 risePct 起触发卖出，
- * 卖出金额随超出阈值的涨幅放大（涨得越多卖得越多）。
+ * 卖出量随超出阈值的涨幅放大（涨得越多卖得越多）。卖出方式按 sellMode（金额/份额/仓位）。
  */
 function evalSmartThresholdSellChange(
   s: Strategy,
@@ -402,14 +436,21 @@ function evalSmartThresholdSellChange(
     return [];
   }
 
-  // 超额涨幅越大，卖出金额倍数越高
+  // 超额涨幅越大，卖出量倍数越高
   const excess = rise - p.risePct;
   const factor =
     p.stepPct > 0
       ? clamp(1 + (excess / p.stepPct) * p.adjustPct, p.minFactor, p.maxFactor)
       : clamp(1, p.minFactor, p.maxFactor);
-  const amount = Math.round(p.baseAmount * factor);
-  if (amount <= 0) return [];
+
+  const qty = resolveSellQuantity(
+    p.sellMode,
+    p.baseAmount,
+    p.baseShares ?? 0,
+    p.baseRatio ?? 0,
+    factor,
+  );
+  if (!qty) return [];
 
   state.lastSellDayIndex = ctx.dayIndex;
   return [
@@ -417,8 +458,8 @@ function evalSmartThresholdSellChange(
       strategyId: s.id,
       fundCode: s.fundCode,
       side: 'SELL',
-      amount,
-      reason: `近${p.window}日涨${(rise * 100).toFixed(2)}%触发智能卖出¥${amount}(×${factor.toFixed(2)})`,
+      ...qty.field,
+      reason: `近${p.window}日涨${(rise * 100).toFixed(2)}%触发智能卖出${qty.label}(×${factor.toFixed(2)})`,
     },
   ];
 }

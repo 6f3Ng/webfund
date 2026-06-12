@@ -391,6 +391,82 @@ describe('runBacktest - 去掉初始资金限制 + 重算指标', () => {
     // 累计收益率 = 总收益 10000 / 净投入 10000 = 100%
     expect(m.cumulativeReturn).toBeCloseTo(1.0, 2);
   });
+
+  it('成交流水记录成交后持有总份额与持有总金额', () => {
+    // 首日 ¥10000 买入（净值 1.0 → 10000 份），次月再投 ¥10000（净值 2.0 → 5000 份）
+    const dca: Strategy = {
+      id: 'd1',
+      name: '月定投',
+      templateType: 'DCA',
+      fundCode: '000001',
+      params: { type: 'DCA', period: 'MONTHLY', dayOfPeriod: 1, amount: 10000 },
+      enabled: true,
+    };
+    const navData = {
+      '000001': [
+        { date: '2024-01-01', nav: 1.0 },
+        { date: '2024-02-01', nav: 2.0 },
+      ],
+    };
+    const { trades } = runBacktest({
+      strategies: [dca],
+      conflictPolicy: DEFAULT_CONFLICT_POLICY,
+      navData,
+      start: '2024-01-01',
+      end: '2024-02-01',
+      purchaseFeeRate: 0,
+    });
+    expect(trades).toHaveLength(2);
+    // 首笔买入后持有 10000 份、市值 10000（10000 × 1.0）
+    expect(trades[0].side).toBe('BUY');
+    expect(trades[0].holdingShares).toBeCloseTo(10000, 0);
+    expect(trades[0].holdingValue).toBeCloseTo(10000, 0);
+    // 第二笔买入 ¥10000（净值 2.0 → 5000 份）后累计 15000 份、市值 30000（15000 × 2.0）
+    expect(trades[1].holdingShares).toBeCloseTo(15000, 0);
+    expect(trades[1].holdingValue).toBeCloseTo(30000, 0);
+  });
+
+  it('卖出后持有总份额/总金额相应减少', () => {
+    // 底仓买入 10000 份后，涨幅触发按份额卖出 2000 份 → 剩 8000 份
+    const navData = {
+      '000001': [
+        { date: '2024-01-01', nav: 1.0 },
+        { date: '2024-01-02', nav: 1.1 },
+        { date: '2024-01-03', nav: 1.2 },
+      ],
+    };
+    const base: Strategy = {
+      id: 'b1',
+      name: '底仓',
+      templateType: 'BASE_POSITION',
+      fundCode: '000001',
+      params: { type: 'BASE_POSITION', amount: 10000 },
+      enabled: true,
+    };
+    const sell: Strategy = {
+      id: 's1',
+      name: '涨卖份额',
+      templateType: 'THRESHOLD_SELL',
+      fundCode: '000001',
+      params: { type: 'THRESHOLD_SELL', risePct: 0.05, window: 1, amount: 0, sellMode: 'SHARES', sellShares: 2000 },
+      enabled: true,
+    };
+    const { trades } = runBacktest({
+      strategies: [base, sell],
+      conflictPolicy: DEFAULT_CONFLICT_POLICY,
+      navData,
+      start: '2024-01-01',
+      end: '2024-01-03',
+      purchaseFeeRate: 0,
+    });
+    const sells = trades.filter((t) => t.side === 'SELL');
+    expect(sells.length).toBeGreaterThan(0);
+    const first = sells[0];
+    expect(first.shares).toBeCloseTo(2000, 0);
+    // 卖出 2000 份后持有 8000 份，市值 = 8000 × 当日净值
+    expect(first.holdingShares).toBeCloseTo(8000, 0);
+    expect(first.holdingValue).toBeCloseTo(8000 * first.nav, 0);
+  });
 });
 
 describe('runBacktest - 基准（策略 / 指定基金 / 默认）', () => {

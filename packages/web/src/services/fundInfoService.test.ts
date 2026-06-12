@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { defaultConfirmLagDays } from '@fund/core';
-import { mapFundType, setPurchaseFeeRates, fundInfoProvider } from './fundInfoService';
+import { mapFundType, setPurchaseFeeRates, setRedeemFeeRates, fundInfoProvider } from './fundInfoService';
 
 describe('mapFundType（数据源分类 → FundType）', () => {
   it('识别 QDII / FOF（确认期更久）', () => {
@@ -39,5 +39,20 @@ describe('fundInfoProvider 申购费率按份额类别解析', () => {
     expect(fundInfoProvider('999999').purchaseFeeRate).toBe(0.012);
     // 还原默认，避免影响其它用例
     setPurchaseFeeRates({ a: 0.015, c: 0 });
+  });
+});
+
+describe('fundInfoProvider 赎回费率按份额类别解析（单档统一费率）', () => {
+  it('未缓存基金回退默认 A 赎回费率（0.5%），单档 minHoldDays=0', () => {
+    setRedeemFeeRates({ a: 0.005, c: 0.005 });
+    const info = fundInfoProvider('999999'); // UNKNOWN → A
+    expect(info.redeemFeeTiers).toEqual([{ minHoldDays: 0, rate: 0.005 }]);
+  });
+
+  it('设置变更后赎回费率即时生效', () => {
+    setRedeemFeeRates({ a: 0.003, c: 0.006 });
+    expect(fundInfoProvider('999999').redeemFeeTiers[0].rate).toBe(0.003);
+    // 还原默认，避免影响其它用例
+    setRedeemFeeRates({ a: 0.005, c: 0.005 });
   });
 });

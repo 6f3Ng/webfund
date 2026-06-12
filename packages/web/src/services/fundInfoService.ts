@@ -20,9 +20,17 @@ const inflight = new Map<string, Promise<FundInfo>>();
 /** A/C 类申购费率（由 settingsStore 注册，避免核心服务直接依赖 store 造成循环依赖）。 */
 let purchaseFeeRates: { a: number; c: number } = { a: 0.015, c: 0 };
 
+/** A/C 类赎回费率（由 settingsStore 注册）。 */
+let redeemFeeRates: { a: number; c: number } = { a: 0.005, c: 0.005 };
+
 /** 注册当前 A/C 类申购费率（settingsStore 初始化与更新时调用）。 */
 export function setPurchaseFeeRates(rates: { a: number; c: number }): void {
   purchaseFeeRates = rates;
+}
+
+/** 注册当前 A/C 类赎回费率（settingsStore 初始化与更新时调用）。 */
+export function setRedeemFeeRates(rates: { a: number; c: number }): void {
+  redeemFeeRates = rates;
 }
 
 /**
@@ -46,6 +54,11 @@ export function mapFundType(typeText?: string): FundType {
 /** 按份额类别取申购费率：C 类用 C 费率，A 类/未知用 A 费率。 */
 function purchaseFeeFor(shareClass: ShareClass): number {
   return shareClass === 'C' ? purchaseFeeRates.c : purchaseFeeRates.a;
+}
+
+/** 按份额类别取赎回费率：C 类用 C 费率，A 类/未知用 A 费率。 */
+function redeemFeeFor(shareClass: ShareClass): number {
+  return shareClass === 'C' ? redeemFeeRates.c : redeemFeeRates.a;
 }
 
 /** 异步预取并缓存基金信息（补充名称与类型，并据类型推断确认/到账滞后、据份额类别定申购费）。
@@ -85,12 +98,18 @@ export async function prefetchFundInfo(code: string): Promise<FundInfo> {
 
 /**
  * 同步 FundInfoProvider（供交易引擎结算使用）：返回缓存信息，
- * 并按「份额类别 + 当前设置」解析申购费率（A 类 / C 类）。未缓存时返回默认配置。
+ * 并按「份额类别 + 当前设置」解析申购费率与赎回费率（A 类 / C 类）。
+ * 赎回费采用与申购费一致的统一费率口径（单档 minHoldDays=0，不按持有天数分档）。
+ * 未缓存时返回默认配置。
  */
 export const fundInfoProvider: FundInfoProvider = (code) => {
   const base = cache.get(code) ?? createDefaultFundInfo(code);
   const shareClass = shareClassCache.get(code) ?? detectShareClass(base.name);
-  return { ...base, purchaseFeeRate: purchaseFeeFor(shareClass) };
+  return {
+    ...base,
+    purchaseFeeRate: purchaseFeeFor(shareClass),
+    redeemFeeTiers: [{ minHoldDays: 0, rate: redeemFeeFor(shareClass) }],
+  };
 };
 
 /** 取已缓存的基金名称 */

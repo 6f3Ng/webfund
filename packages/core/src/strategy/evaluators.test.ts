@@ -422,6 +422,89 @@ describe('SMART_THRESHOLD_SELL_CHANGE 智能阈值卖出·涨跌幅', () => {
   });
 });
 
+describe('阈值卖出/智能阈值卖出 — 卖出方式（金额/份额/仓位）', () => {
+  const pos = () => ({ fundCode: '000001', shares: 10000, cost: 10000, avgCost: 1.0 });
+  const rise7 = ctx({
+    date: '2024-03-10',
+    dayIndex: 5,
+    navToday: () => 1.07,
+    navTradingDaysAgo: (_c, n) => (n === 3 ? 1.0 : undefined), // 涨 7%
+    position: pos,
+  });
+
+  it('THRESHOLD_SELL 缺省 sellMode 按金额（兼容旧数据）', () => {
+    const s: Strategy = {
+      id: 'ts', name: 'amt', templateType: 'THRESHOLD_SELL', fundCode: '000001',
+      params: { type: 'THRESHOLD_SELL', risePct: 0.05, window: 3, amount: 2000 },
+      enabled: true,
+    };
+    const [a] = evaluateStrategy(s, rise7, {});
+    expect(a.amount).toBe(2000);
+    expect(a.shares).toBeUndefined();
+    expect(a.ratio).toBeUndefined();
+  });
+
+  it('THRESHOLD_SELL 按份额卖出', () => {
+    const s: Strategy = {
+      id: 'ts', name: 'sh', templateType: 'THRESHOLD_SELL', fundCode: '000001',
+      params: { type: 'THRESHOLD_SELL', risePct: 0.05, window: 3, amount: 0, sellMode: 'SHARES', sellShares: 500 },
+      enabled: true,
+    };
+    const [a] = evaluateStrategy(s, rise7, {});
+    expect(a.shares).toBe(500);
+    expect(a.amount).toBeUndefined();
+    expect(a.ratio).toBeUndefined();
+  });
+
+  it('THRESHOLD_SELL 按仓位卖出', () => {
+    const s: Strategy = {
+      id: 'ts', name: 'ratio', templateType: 'THRESHOLD_SELL', fundCode: '000001',
+      params: { type: 'THRESHOLD_SELL', risePct: 0.05, window: 3, amount: 0, sellMode: 'RATIO', sellRatio: 0.3 },
+      enabled: true,
+    };
+    const [a] = evaluateStrategy(s, rise7, {});
+    expect(a.ratio).toBe(0.3);
+    expect(a.amount).toBeUndefined();
+    expect(a.shares).toBeUndefined();
+  });
+
+  it('SMART_THRESHOLD_SELL_CHANGE 按份额随涨幅放大', () => {
+    // 涨 15%：超额 10% → factor=2 → 500×2=1000 份
+    const s: Strategy = {
+      id: 'sts', name: 'sh', templateType: 'SMART_THRESHOLD_SELL_CHANGE', fundCode: '000001',
+      params: {
+        type: 'SMART_THRESHOLD_SELL_CHANGE', risePct: 0.05, window: 3, baseAmount: 0,
+        sellMode: 'SHARES', baseShares: 500, stepPct: 0.05, adjustPct: 0.5, minFactor: 1, maxFactor: 3,
+      },
+      enabled: true,
+    };
+    const [a] = evaluateStrategy(
+      s,
+      ctx({ date: '2024-03-10', dayIndex: 5, navToday: () => 1.15, navTradingDaysAgo: (_c, n) => (n === 3 ? 1.0 : undefined), position: pos }),
+      {},
+    );
+    expect(a.shares).toBe(1000);
+  });
+
+  it('SMART_THRESHOLD_SELL_CHANGE 按仓位放大并封顶 100%', () => {
+    // 涨 100%：factor 触顶 3 → 0.4×3=1.2 → clamp 到 1.0（全卖）
+    const s: Strategy = {
+      id: 'sts', name: 'ratio', templateType: 'SMART_THRESHOLD_SELL_CHANGE', fundCode: '000001',
+      params: {
+        type: 'SMART_THRESHOLD_SELL_CHANGE', risePct: 0.05, window: 3, baseAmount: 0,
+        sellMode: 'RATIO', baseRatio: 0.4, stepPct: 0.05, adjustPct: 0.5, minFactor: 1, maxFactor: 3,
+      },
+      enabled: true,
+    };
+    const [a] = evaluateStrategy(
+      s,
+      ctx({ date: '2024-03-10', dayIndex: 5, navToday: () => 2.0, navTradingDaysAgo: (_c, n) => (n === 3 ? 1.0 : undefined), position: pos }),
+      {},
+    );
+    expect(a.ratio).toBe(1);
+  });
+});
+
 describe('TAKE_PROFIT / STOP_LOSS', () => {
   it('止盈触发', () => {
     const s: Strategy = {

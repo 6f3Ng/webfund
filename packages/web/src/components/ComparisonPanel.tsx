@@ -28,6 +28,7 @@ const ComparisonChart = lazy(() =>
 interface Props {
   sets: StrategySet[];
   purchaseFeeRate: number;
+  redeemFeeRate: number;
 }
 
 /** 指标对比表的列定义：从各结果取值 + 格式化 + 高亮最优 */
@@ -131,7 +132,7 @@ const METRIC_ROWS: MetricRow[] = [
   { key: 'tradingDays', label: '回测交易日', pick: (r) => r.metrics.tradingDays, fmt: (v) => `${v} 天`, better: 'none' },
 ];
 
-export function ComparisonPanel({ sets, purchaseFeeRate }: Props) {
+export function ComparisonPanel({ sets, purchaseFeeRate, redeemFeeRate }: Props) {
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const isMobile = useIsMobile();
@@ -197,6 +198,7 @@ export function ComparisonPanel({ sets, purchaseFeeRate }: Props) {
             start: startStr,
             end: endStr,
             purchaseFeeRate,
+            redeemFeeRate,
             ...(benchSet
               ? {
                   benchmarkStrategies: benchSet.strategies,

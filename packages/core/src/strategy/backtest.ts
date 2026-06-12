@@ -152,6 +152,9 @@ export function runBacktest(input: BacktestInput): BacktestResult {
           shares: sellShares,
           fee,
           reason: action.reason,
+          // 成交后该基金的持有总份额与总金额（份额可能已减至 0）
+          holdingShares: pos.shares,
+          holdingValue: roundAmount(pos.shares * nav),
         });
         if (pos.shares <= 1e-8) positions.delete(action.fundCode);
       } else {
@@ -179,6 +182,9 @@ export function runBacktest(input: BacktestInput): BacktestResult {
           shares,
           fee,
           reason: action.reason,
+          // 成交后该基金的持有总份额与总金额
+          holdingShares: pos.shares,
+          holdingValue: roundAmount(pos.shares * nav),
         });
       }
     }

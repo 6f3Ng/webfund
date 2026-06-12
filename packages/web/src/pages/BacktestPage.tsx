@@ -53,7 +53,13 @@ export function BacktestPage() {
         {
           key: 'compare',
           label: '多策略集对比',
-          children: <ComparisonPanel sets={sets} purchaseFeeRate={settings.defaultPurchaseFeeRate} />,
+          children: (
+            <ComparisonPanel
+              sets={sets}
+              purchaseFeeRate={settings.defaultPurchaseFeeRate}
+              redeemFeeRate={settings.defaultRedeemFeeRate}
+            />
+          ),
         },
       ]}
     />
@@ -127,6 +133,7 @@ function SingleBacktest() {
         start: startStr,
         end: endStr,
         purchaseFeeRate: settings.defaultPurchaseFeeRate,
+        redeemFeeRate: settings.defaultRedeemFeeRate,
         ...(benchSet
           ? {
               benchmarkStrategies: benchSet.strategies,
@@ -161,6 +168,18 @@ function SingleBacktest() {
     { title: '净值', dataIndex: 'nav', key: 'nav', render: (n: number) => n.toFixed(4) },
     { title: '金额', dataIndex: 'amount', key: 'amount', render: fmtMoney },
     { title: '份额', dataIndex: 'shares', key: 'shares', render: (s: number) => s.toFixed(2) },
+    {
+      title: '持有总份额',
+      dataIndex: 'holdingShares',
+      key: 'holdingShares',
+      render: (s: number) => s.toFixed(2),
+    },
+    {
+      title: '持有总金额',
+      dataIndex: 'holdingValue',
+      key: 'holdingValue',
+      render: fmtMoney,
+    },
     { title: '原因', dataIndex: 'reason', key: 'reason', ellipsis: true },
   ];
 

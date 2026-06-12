@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { Modal, Form, Input, InputNumber, Select, Button, Space, Switch } from 'antd';
-import type { Strategy, StrategyParams, StrategyTemplate, DcaPeriod } from '@fund/core';
+import type { Strategy, StrategyParams, StrategyTemplate, DcaPeriod, ThresholdSellMode } from '@fund/core';
 
 interface StrategyModalProps {
   open: boolean;
@@ -92,24 +92,34 @@ function buildParams(
         minFactor: Number(v.minFactor),
         maxFactor: Number(v.maxFactor),
       };
-    case 'THRESHOLD_SELL':
+    case 'THRESHOLD_SELL': {
+      const sellMode = (v.sellMode as ThresholdSellMode) ?? 'AMOUNT';
       return {
         type: 'THRESHOLD_SELL',
         risePct: Number(v.risePct) / 100,
         window: Number(v.window),
-        amount: Number(v.amount),
+        sellMode,
+        amount: sellMode === 'AMOUNT' ? Number(v.amount) : 0,
+        sellShares: sellMode === 'SHARES' ? Number(v.sellShares) : undefined,
+        sellRatio: sellMode === 'RATIO' ? Number(v.sellRatioPct) / 100 : undefined,
       };
-    case 'SMART_THRESHOLD_SELL_CHANGE':
+    }
+    case 'SMART_THRESHOLD_SELL_CHANGE': {
+      const sellMode = (v.sellMode as ThresholdSellMode) ?? 'AMOUNT';
       return {
         type: 'SMART_THRESHOLD_SELL_CHANGE',
         risePct: Number(v.risePct) / 100,
         window: Number(v.window),
-        baseAmount: Number(v.baseAmount),
+        sellMode,
+        baseAmount: sellMode === 'AMOUNT' ? Number(v.baseAmount) : 0,
+        baseShares: sellMode === 'SHARES' ? Number(v.baseShares) : undefined,
+        baseRatio: sellMode === 'RATIO' ? Number(v.baseRatioPct) / 100 : undefined,
         stepPct: Number(v.stepPct) / 100,
         adjustPct: Number(v.adjustPct) / 100,
         minFactor: Number(v.minFactor),
         maxFactor: Number(v.maxFactor),
       };
+    }
     case 'TAKE_PROFIT':
       return { type: 'TAKE_PROFIT', gainPct: Number(v.gainPct) / 100, sellRatio: Number(v.sellRatio) / 100 };
     case 'SMART_TAKE_PROFIT':
@@ -182,18 +192,32 @@ function paramsToForm(p: StrategyParams): Record<string, number | string | boole
         minFactor: p.minFactor,
         maxFactor: p.maxFactor,
       };
-    case 'THRESHOLD_SELL':
-      return { risePct: p.risePct * 100, window: p.window, amount: p.amount };
-    case 'SMART_THRESHOLD_SELL_CHANGE':
+    case 'THRESHOLD_SELL': {
+      const mode = p.sellMode ?? 'AMOUNT';
       return {
         risePct: p.risePct * 100,
         window: p.window,
-        baseAmount: p.baseAmount,
+        sellMode: mode,
+        amount: p.amount || 1000,
+        sellShares: p.sellShares ?? 1000,
+        sellRatioPct: (p.sellRatio ?? 0.2) * 100,
+      };
+    }
+    case 'SMART_THRESHOLD_SELL_CHANGE': {
+      const mode = p.sellMode ?? 'AMOUNT';
+      return {
+        risePct: p.risePct * 100,
+        window: p.window,
+        sellMode: mode,
+        baseAmount: p.baseAmount || 1000,
+        baseShares: p.baseShares ?? 1000,
+        baseRatioPct: (p.baseRatio ?? 0.2) * 100,
         stepPct: p.stepPct * 100,
         adjustPct: p.adjustPct * 100,
         minFactor: p.minFactor,
         maxFactor: p.maxFactor,
       };
+    }
     case 'TAKE_PROFIT':
       return { gainPct: p.gainPct * 100, sellRatio: p.sellRatio * 100 };
     case 'SMART_TAKE_PROFIT':
@@ -254,12 +278,22 @@ function defaultFormForTemplate(type: StrategyTemplate): Record<string, number |
         maxFactor: 3,
       };
     case 'THRESHOLD_SELL':
-      return { risePct: 5, window: 5, amount: 1000 };
+      return {
+        risePct: 5,
+        window: 5,
+        sellMode: 'AMOUNT',
+        amount: 1000,
+        sellShares: 1000,
+        sellRatioPct: 20,
+      };
     case 'SMART_THRESHOLD_SELL_CHANGE':
       return {
         risePct: 5,
         window: 5,
+        sellMode: 'AMOUNT',
         baseAmount: 1000,
+        baseShares: 1000,
+        baseRatioPct: 20,
         stepPct: 5,
         adjustPct: 50,
         minFactor: 1,
@@ -282,6 +316,70 @@ const PERIOD_OPTIONS = [
   { label: '每周', value: 'WEEKLY' },
   { label: '每月', value: 'MONTHLY' },
 ];
+
+/** 阈值卖出/智能阈值卖出的卖出方式选项 */
+const SELL_MODE_OPTIONS = [
+  { label: '按金额（元）', value: 'AMOUNT' },
+  { label: '按份额（份）', value: 'SHARES' },
+  { label: '按仓位（%）', value: 'RATIO' },
+];
+
+/**
+ * 卖出方式 + 对应卖出量字段（阈值卖出 / 智能阈值卖出共用）。
+ * - 默认按金额（兼容旧数据）；可切换为按份额、按仓位（相对当前持有份额的比例）。
+ * - smart=true 时为「基准卖出量」（随涨幅放大）。
+ * 三个量字段（amount/shares/ratio 对应 *Amount/*Shares/*RatioPct）始终注册，
+ * 由 buildParams 按 sellMode 取用，保证切换方式时各值保留、编辑回填正确。
+ */
+function SellModeFields({ form, smart }: { form: ReturnType<typeof Form.useForm>[0]; smart: boolean }) {
+  const mode = (Form.useWatch('sellMode', form) as ThresholdSellMode | undefined) ?? 'AMOUNT';
+  const amountName = smart ? 'baseAmount' : 'amount';
+  const sharesName = smart ? 'baseShares' : 'sellShares';
+  const ratioName = smart ? 'baseRatioPct' : 'sellRatioPct';
+  const prefix = smart ? '基准' : '';
+  return (
+    <>
+      <Form.Item
+        name="sellMode"
+        label="卖出方式"
+        tooltip="默认按金额（兼容旧策略）；可改为按份额或按仓位比例卖出"
+        rules={[{ required: true }]}
+      >
+        <Select options={SELL_MODE_OPTIONS} />
+      </Form.Item>
+      {mode === 'SHARES' && (
+        <Form.Item
+          name={sharesName}
+          label={`${prefix}卖出份额（份）`}
+          tooltip="按绝对份额卖出；持仓不足则全部卖出"
+          rules={[{ required: true, type: 'number', min: 0.01 }]}
+        >
+          <InputNumber style={{ width: '100%' }} min={0.01} step={100} />
+        </Form.Item>
+      )}
+      {mode === 'RATIO' && (
+        <Form.Item
+          name={ratioName}
+          label={`${prefix}卖出仓位比例（%）`}
+          tooltip="按当前持有份额的比例卖出（100% = 全部卖出）"
+          rules={[{ required: true, type: 'number', min: 1, max: 100 }]}
+        >
+          <InputNumber style={{ width: '100%' }} min={1} max={100} step={5} addonAfter="%" />
+        </Form.Item>
+      )}
+      {mode === 'AMOUNT' && (
+        <Form.Item
+          name={amountName}
+          label={`${prefix}卖出金额（元）`}
+          tooltip="按成交净值换算份额卖出；持仓不足则全部卖出"
+          rules={[{ required: true, type: 'number', min: 1 }]}
+        >
+          <InputNumber style={{ width: '100%' }} min={1} step={500} />
+        </Form.Item>
+      )}
+    </>
+  );
+}
 
 /**
  * 定投周期 + 执行日字段（DCA / 智能定投 / 目标市值法共用）。
@@ -554,14 +652,7 @@ function StrategyForm({ editing, onSubmit, onClose }: StrategyModalProps) {
           <Form.Item name="window" label="观察窗口（交易日）" rules={[{ required: true, type: 'number', min: 1 }]}>
             <InputNumber style={{ width: '100%' }} min={1} />
           </Form.Item>
-          <Form.Item
-            name="amount"
-            label="卖出金额（元）"
-            tooltip="按成交净值换算份额卖出；持仓不足则全部卖出"
-            rules={[{ required: true, type: 'number', min: 1 }]}
-          >
-            <InputNumber style={{ width: '100%' }} min={1} step={500} />
-          </Form.Item>
+          <SellModeFields form={form} smart={false} />
         </>
       )}
 
@@ -578,14 +669,7 @@ function StrategyForm({ editing, onSubmit, onClose }: StrategyModalProps) {
           <Form.Item name="window" label="观察窗口（交易日）" rules={[{ required: true, type: 'number', min: 1 }]}>
             <InputNumber style={{ width: '100%' }} min={1} />
           </Form.Item>
-          <Form.Item
-            name="baseAmount"
-            label="基准卖出金额（元）"
-            tooltip="达到阈值时卖出的基准金额；涨幅越高按下方比例放大"
-            rules={[{ required: true, type: 'number', min: 1 }]}
-          >
-            <InputNumber style={{ width: '100%' }} min={1} step={500} />
-          </Form.Item>
+          <SellModeFields form={form} smart={true} />
           <Form.Item
             name="stepPct"
             label="每档涨幅（%）"
@@ -597,7 +681,7 @@ function StrategyForm({ editing, onSubmit, onClose }: StrategyModalProps) {
           <Form.Item
             name="adjustPct"
             label="每档加码比例（%）"
-            tooltip="涨幅每上一档，卖出金额增加的幅度（涨得越多卖得越多）"
+            tooltip="涨幅每上一档，卖出量增加的幅度（涨得越多卖得越多）"
             rules={[{ required: true, type: 'number', min: 0 }]}
           >
             <InputNumber style={{ width: '100%' }} min={0} step={10} addonAfter="%" />

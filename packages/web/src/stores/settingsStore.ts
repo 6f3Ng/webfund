@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { SettingsRepository, type AppSettings, type ValuationSourceId } from '@fund/core';
 import { storageAdapter } from '@/adapters/LocalStorageAdapter';
-import { setPurchaseFeeRates } from '@/services/fundInfoService';
+import { setPurchaseFeeRates, setRedeemFeeRates } from '@/services/fundInfoService';
 import { setSequentialRequests } from '@/services/requestMode';
 
 const repo = new SettingsRepository(storageAdapter);
@@ -11,9 +11,15 @@ function syncPurchaseFeeRates(s: AppSettings): void {
   setPurchaseFeeRates({ a: s.defaultPurchaseFeeRate, c: s.defaultPurchaseFeeRateC });
 }
 
-/** 将派生设置同步到对应服务（申购费率、请求并发模式）。 */
+/** 将 A/C 类赎回费率同步到 fundInfoService，使交易结算按份额类别取费率。 */
+function syncRedeemFeeRates(s: AppSettings): void {
+  setRedeemFeeRates({ a: s.defaultRedeemFeeRate, c: s.defaultRedeemFeeRateC });
+}
+
+/** 将派生设置同步到对应服务（申购/赎回费率、请求并发模式）。 */
 function syncDerived(s: AppSettings): void {
   syncPurchaseFeeRates(s);
+  syncRedeemFeeRates(s);
   setSequentialRequests(s.sequentialRequests);
 }
 

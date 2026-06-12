@@ -65,6 +65,10 @@ export interface BacktestTrade {
   shares: number;
   fee: number;
   reason: string;
+  /** 成交后该基金的持有总份额（已确认份额） */
+  holdingShares: number;
+  /** 成交后该基金的持有总金额（持有总份额 × 当日成交净值） */
+  holdingValue: number;
 }
 
 /** 回测结果指标（尽量详尽） */

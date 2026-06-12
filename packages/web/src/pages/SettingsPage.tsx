@@ -64,6 +64,36 @@ export function SettingsPage() {
           </Space>
         </Form.Item>
 
+        <Form.Item label="默认赎回费率（A 类基金）">
+          <Space>
+            <InputNumber
+              min={0}
+              max={0.05}
+              step={0.001}
+              value={settings.defaultRedeemFeeRate}
+              onChange={(v) => update({ defaultRedeemFeeRate: v ?? 0.005 })}
+            />
+            <Typography.Text type="secondary">
+              {(settings.defaultRedeemFeeRate * 100).toFixed(2)}%（卖出时按成交金额收取）
+            </Typography.Text>
+          </Space>
+        </Form.Item>
+
+        <Form.Item label="赎回费率（C 类基金）">
+          <Space>
+            <InputNumber
+              min={0}
+              max={0.05}
+              step={0.001}
+              value={settings.defaultRedeemFeeRateC}
+              onChange={(v) => update({ defaultRedeemFeeRateC: v ?? 0.005 })}
+            />
+            <Typography.Text type="secondary">
+              {(settings.defaultRedeemFeeRateC * 100).toFixed(2)}%（C 类赎回费，按成交金额收取）
+            </Typography.Text>
+          </Space>
+        </Form.Item>
+
         <Form.Item label="多基金接口请求方式">
           <Space>
             <Switch

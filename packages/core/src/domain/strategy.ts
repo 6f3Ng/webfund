@@ -144,7 +144,16 @@ export interface SmartThresholdBuyChangeParams {
 }
 
 /**
- * 阈值卖出：近 window 个交易日涨幅达到 risePct 时卖出 amount 金额（按成交净值换算份额，持仓不足则全卖）
+ * 阈值/智能阈值卖出的卖出方式：
+ * - AMOUNT：按金额卖出（默认，兼容旧导入数据；引擎按成交净值换算份额）；
+ * - SHARES：按份额卖出（绝对份额）；
+ * - RATIO：按仓位卖出（相对当前持有份额的比例 0~1）。
+ */
+export type ThresholdSellMode = 'AMOUNT' | 'SHARES' | 'RATIO';
+
+/**
+ * 阈值卖出：近 window 个交易日涨幅达到 risePct 时按 sellMode 指定方式卖出（持仓不足则全卖）。
+ * 卖出方式默认金额（AMOUNT），兼容旧导入数据（旧数据无 sellMode 字段即按金额）。
  */
 export interface ThresholdSellParams {
   type: 'THRESHOLD_SELL';
@@ -152,18 +161,24 @@ export interface ThresholdSellParams {
   risePct: number;
   /** 观察窗口（交易日） */
   window: number;
-  /** 卖出金额（元） */
+  /** 卖出金额（元，sellMode=AMOUNT 时生效；保留以兼容旧数据） */
   amount: number;
+  /** 卖出方式（默认 AMOUNT，缺省视为按金额，兼容旧数据） */
+  sellMode?: ThresholdSellMode;
+  /** 卖出份额（sellMode=SHARES 时生效） */
+  sellShares?: number;
+  /** 卖出仓位比例 0~1（sellMode=RATIO 时生效） */
+  sellRatio?: number;
 }
 
 /**
  * 智能阈值卖出-涨跌幅模式：与"智能定投-涨跌幅模式"对称的卖出端策略。
- * 当近 window 个交易日涨幅达到 risePct 起触发卖出，但卖出金额随涨幅大小动态放大：
+ * 当近 window 个交易日涨幅达到 risePct 起触发卖出，但卖出量随涨幅大小动态放大：
  * 超出阈值的涨幅越多卖得越多。
  * 超额涨幅 excess = rise − risePct；
  * 卖出倍数 factor = clamp(1 + (excess / stepPct) × adjustPct, minFactor, maxFactor)；
- * 卖出金额 = baseAmount × factor（按成交净值换算份额，持仓不足则全卖）。
- * 与阈值卖出一致带 window 冷却，避免连续重复触发。
+ * 卖出量 = 基准量 × factor（基准量按 sellMode 取金额/份额/仓位比例；持仓不足则全卖）。
+ * 与阈值卖出一致带 window 冷却，避免连续重复触发。卖出方式默认金额（兼容旧数据）。
  */
 export interface SmartThresholdSellChangeParams {
   type: 'SMART_THRESHOLD_SELL_CHANGE';
@@ -171,16 +186,22 @@ export interface SmartThresholdSellChangeParams {
   risePct: number;
   /** 观察窗口（交易日） */
   window: number;
-  /** 基准卖出金额（达到阈值时卖出，元） */
+  /** 基准卖出金额（达到阈值时卖出，元，sellMode=AMOUNT 时生效；保留以兼容旧数据） */
   baseAmount: number;
   /** 每档涨幅（如 0.05 = 每多涨 5% 一档） */
   stepPct: number;
-  /** 每档加码比例（如 0.5 = 每档卖出金额 +50%） */
+  /** 每档加码比例（如 0.5 = 每档卖出量 +50%） */
   adjustPct: number;
   /** 卖出倍数下限（如 1） */
   minFactor: number;
   /** 卖出倍数上限（如 3） */
   maxFactor: number;
+  /** 卖出方式（默认 AMOUNT，缺省视为按金额，兼容旧数据） */
+  sellMode?: ThresholdSellMode;
+  /** 基准卖出份额（sellMode=SHARES 时生效） */
+  baseShares?: number;
+  /** 基准卖出仓位比例 0~1（sellMode=RATIO 时生效） */
+  baseRatio?: number;
 }
 
 /** 止盈：持仓收益率达到 gainPct 时卖出 sellRatio 比例 */
